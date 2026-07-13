@@ -1,0 +1,304 @@
+const SHEET_NAMES = Object.freeze({
+  grows: "Web_Grows",
+  sales: "Web_Sales",
+  config: "Web_Config",
+  weeks: "Web_Weeks"
+});
+
+const HEADERS = Object.freeze({
+  grows: ["id", "timestamp", "grower", "strain", "boxes", "unitPrice", "notes", "createdAt", "weekId"],
+  sales: ["id", "timestamp", "seller", "grower", "strain", "boxes", "unitPrice", "gross", "growerPayout", "gangPayout", "sellerPayout", "reference", "growerPaidAt", "sellerPaidAt", "createdAt", "weekId"],
+  config: ["kind", "name", "price", "active"],
+  weeks: ["id", "label", "startedAt", "closedAt", "status", "createdAt"]
+});
+
+function doGet() {
+  return json_({ ok: true, service: "Clown Tent tracker", status: "online" });
+}
+
+function doPost(e) {
+  try {
+    const body = JSON.parse((e && e.postData && e.postData.contents) || "{}");
+    assertAccess_(body.accessCode);
+    const action = String(body.action || "");
+    let result;
+    if (action === "bootstrap") result = bootstrap_();
+    else if (action === "addGrow") result = addGrow_(body.record || {});
+    else if (action === "addSale") result = addSale_(body.record || {});
+    else if (action === "settleSale") result = settleSale_(body.id, body.role);
+    else if (action === "rolloverWeek") result = rolloverWeek_(body.label);
+    else if (action === "upsertConfig") result = upsertConfig_(body.kind, body.name, body.price);
+    else if (action === "removeConfig") result = removeConfig_(body.kind, body.name);
+    else throw new Error("Unknown tracker action.");
+    return json_({ ok: true, data: result });
+  } catch (error) {
+    return json_({ ok: false, error: error && error.message ? error.message : "Unexpected tracker error." });
+  }
+}
+
+function setupTracker() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    ensureSheets_();
+    seedConfig_();
+    const properties = PropertiesService.getScriptProperties();
+    if (!properties.getProperty("ACCESS_CODE")) throw new Error("Set ACCESS_CODE in Project Settings, Script properties, then run setupTracker again.");
+    return "Tracker ready.";
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function bootstrap_() {
+  ensureSheets_();
+  const configs = readObjects_(SHEET_NAMES.config);
+  return {
+    members: configs.filter(function (row) { return row.kind === "member" && truthy_(row.active); }).map(function (row) { return row.name; }).sort(),
+    strains: configs.filter(function (row) { return row.kind === "strain" && truthy_(row.active); }).map(function (row) { return { name: row.name, price: number_(row.price) }; }).sort(function (a, b) { return a.name.localeCompare(b.name); }),
+    grows: readObjects_(SHEET_NAMES.grows).map(normalizeGrow_),
+    sales: readObjects_(SHEET_NAMES.sales).map(normalizeSale_),
+    weeks: readObjects_(SHEET_NAMES.weeks),
+    activeWeek: activeWeek_()
+  };
+}
+
+function addGrow_(record) {
+  validateRequired_(record, ["timestamp", "grower", "strain", "boxes"]);
+  const boxes = number_(record.boxes);
+  if (boxes <= 0) throw new Error("Boxes must be greater than zero.");
+  const week = activeWeek_();
+  withLock_(function () {
+    appendObject_(SHEET_NAMES.grows, HEADERS.grows, {
+      id: Utilities.getUuid(),
+      timestamp: safeDate_(record.timestamp),
+      grower: clean_(record.grower, 60),
+      strain: clean_(record.strain, 80),
+      boxes: boxes,
+      unitPrice: Math.max(0, number_(record.unitPrice)),
+      notes: clean_(record.notes, 300),
+      createdAt: new Date().toISOString(),
+      weekId: week.id
+    });
+  });
+  return bootstrap_();
+}
+
+function addSale_(record) {
+  validateRequired_(record, ["timestamp", "seller", "grower", "strain", "boxes", "unitPrice"]);
+  const boxes = number_(record.boxes);
+  const unitPrice = number_(record.unitPrice);
+  if (boxes <= 0) throw new Error("Boxes must be greater than zero.");
+  if (unitPrice < 0) throw new Error("Price cannot be negative.");
+  const week = activeWeek_();
+  withLock_(function () {
+    const available = availableBoxes_(record.grower, record.strain);
+    if (boxes > available + 0.0001) throw new Error("Only " + available + " boxes remain for that grower and strain.");
+    const gross = round_(boxes * unitPrice);
+    const growerPayout = round_(gross * 0.70);
+    const gangPayout = round_(gross * 0.15);
+    const sellerPayout = round_(gross - growerPayout - gangPayout);
+    appendObject_(SHEET_NAMES.sales, HEADERS.sales, {
+      id: Utilities.getUuid(),
+      timestamp: safeDate_(record.timestamp),
+      seller: clean_(record.seller, 60),
+      grower: clean_(record.grower, 60),
+      strain: clean_(record.strain, 80),
+      boxes: boxes,
+      unitPrice: unitPrice,
+      gross: gross,
+      growerPayout: growerPayout,
+      gangPayout: gangPayout,
+      sellerPayout: sellerPayout,
+      reference: clean_(record.reference, 120),
+      growerPaidAt: "",
+      sellerPaidAt: "",
+      createdAt: new Date().toISOString(),
+      weekId: week.id
+    });
+  });
+  return bootstrap_();
+}
+
+function settleSale_(id, role) {
+  if (!id || ["grower", "seller", "both"].indexOf(role) === -1) throw new Error("Invalid payout update.");
+  withLock_(function () {
+    const sheet = sheet_(SHEET_NAMES.sales);
+    const values = sheet.getDataRange().getValues();
+    const headers = values[0].map(String);
+    const idIndex = headers.indexOf("id");
+    const growerIndex = headers.indexOf("growerPaidAt");
+    const sellerIndex = headers.indexOf("sellerPaidAt");
+    const rowIndex = values.findIndex(function (row, index) { return index > 0 && String(row[idIndex]) === String(id); });
+    if (rowIndex < 1) throw new Error("Sale not found.");
+    const stamp = new Date().toISOString();
+    if (role === "grower" || role === "both") sheet.getRange(rowIndex + 1, growerIndex + 1).setValue(stamp);
+    if (role === "seller" || role === "both") sheet.getRange(rowIndex + 1, sellerIndex + 1).setValue(stamp);
+  });
+  return bootstrap_();
+}
+
+function upsertConfig_(kind, name, price) {
+  if (["member", "strain"].indexOf(kind) === -1) throw new Error("Invalid config type.");
+  name = clean_(name, 80);
+  if (!name) throw new Error("A name is required.");
+  withLock_(function () {
+    const sheet = sheet_(SHEET_NAMES.config);
+    const values = sheet.getDataRange().getValues();
+    const headers = values[0].map(String);
+    const kindIndex = headers.indexOf("kind");
+    const nameIndex = headers.indexOf("name");
+    const priceIndex = headers.indexOf("price");
+    const activeIndex = headers.indexOf("active");
+    const rowIndex = values.findIndex(function (row, index) {
+      return index > 0 && String(row[kindIndex]).toLowerCase() === kind && String(row[nameIndex]).toLowerCase() === name.toLowerCase();
+    });
+    if (rowIndex > 0) {
+      sheet.getRange(rowIndex + 1, priceIndex + 1).setValue(kind === "strain" ? Math.max(0, number_(price)) : "");
+      sheet.getRange(rowIndex + 1, activeIndex + 1).setValue(true);
+    } else {
+      sheet.appendRow([kind, name, kind === "strain" ? Math.max(0, number_(price)) : "", true]);
+    }
+  });
+  return bootstrap_();
+}
+
+function removeConfig_(kind, name) {
+  withLock_(function () {
+    const sheet = sheet_(SHEET_NAMES.config);
+    const values = sheet.getDataRange().getValues();
+    const headers = values[0].map(String);
+    const kindIndex = headers.indexOf("kind");
+    const nameIndex = headers.indexOf("name");
+    const activeIndex = headers.indexOf("active");
+    const rowIndex = values.findIndex(function (row, index) {
+      return index > 0 && String(row[kindIndex]) === String(kind) && String(row[nameIndex]) === String(name);
+    });
+    if (rowIndex < 1) throw new Error("Config item not found.");
+    sheet.getRange(rowIndex + 1, activeIndex + 1).setValue(false);
+  });
+  return bootstrap_();
+}
+
+function rolloverWeek_(label) {
+  withLock_(function () {
+    const sheet = sheet_(SHEET_NAMES.weeks);
+    const values = sheet.getDataRange().getValues();
+    const headers = values[0].map(String);
+    const statusIndex = headers.indexOf("status");
+    const closedIndex = headers.indexOf("closedAt");
+    const activeIndex = values.findIndex(function (row, index) { return index > 0 && String(row[statusIndex]).toLowerCase() === "active"; });
+    const stamp = new Date().toISOString();
+    if (activeIndex > 0) {
+      sheet.getRange(activeIndex + 1, statusIndex + 1).setValue("closed");
+      sheet.getRange(activeIndex + 1, closedIndex + 1).setValue(stamp);
+    }
+    const cleanLabel = clean_(label, 80) || "Week of " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMM d, yyyy");
+    sheet.appendRow(["week-" + Utilities.getUuid(), cleanLabel, stamp, "", "active", stamp]);
+  });
+  return bootstrap_();
+}
+
+function activeWeek_() {
+  const weeks = readObjects_(SHEET_NAMES.weeks);
+  const active = weeks.filter(function (week) { return String(week.status).toLowerCase() === "active"; }).pop();
+  if (active) return active;
+  const stamp = new Date().toISOString();
+  const week = { id: "week-" + Utilities.getUuid(), label: "Week of " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMM d, yyyy"), startedAt: stamp, closedAt: "", status: "active", createdAt: stamp };
+  appendObject_(SHEET_NAMES.weeks, HEADERS.weeks, week);
+  return week;
+}
+
+function availableBoxes_(grower, strain) {
+  const grown = readObjects_(SHEET_NAMES.grows).filter(function (row) {
+    return String(row.grower) === String(grower) && String(row.strain) === String(strain);
+  }).reduce(function (sum, row) { return sum + number_(row.boxes); }, 0);
+  const sold = readObjects_(SHEET_NAMES.sales).filter(function (row) {
+    return String(row.grower) === String(grower) && String(row.strain) === String(strain);
+  }).reduce(function (sum, row) { return sum + number_(row.boxes); }, 0);
+  return round_(grown - sold);
+}
+
+function ensureSheets_() {
+  const book = SpreadsheetApp.getActiveSpreadsheet();
+  Object.keys(SHEET_NAMES).forEach(function (key) {
+    let sheet = book.getSheetByName(SHEET_NAMES[key]);
+    if (!sheet) sheet = book.insertSheet(SHEET_NAMES[key]);
+    const headers = HEADERS[key];
+    const current = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    if (current.join("") === "") {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#173c17").setFontColor("#ffffff");
+      sheet.setFrozenRows(1);
+      sheet.autoResizeColumns(1, headers.length);
+    }
+  });
+}
+
+function seedConfig_() {
+  const sheet = sheet_(SHEET_NAMES.config);
+  if (sheet.getLastRow() > 1) return;
+  const members = ["Smabbles", "Jack", "Dottie", "Grace", "MJ", "Dante", "Clicky", "Vince", "Bubbles", "Hunii", "Rage", "Marr", "Mazy", "SHMO", "Trashman", "Lottie", "Giggles", "JuggsMcNuggs"];
+  const strains = [["9 Pound Hammer",450],["Alaskan Thunderfuck",450],["Alien OG",450],["Black Diamond",525],["Blue Diesel",469],["Blueberry",431],["Blueberry Diesel",431],["Charlotte's Web",450],["Chemdawg",469],["Chem Wreck",544],["Cherry AK-47",431],["Cherry Bomb",431],["Cherry Pie",506],["Chernobyl",450],["Chocolate Thai",431],["Cinex",431],["Cotton Candy",431],["Dr. Grinspoon",469],["El Chapo",600],["Forbidden Fruit",431],["Girl Scout Cookies",488],["Golden Goat",469],["Gorilla Glue",450],["Grape Ape",431],["Harlequin",431],["Hawaiian Snow",488],["Headband",431],["Heavy Duty Fruity",488],["Hindu Kush",600],["J1",506],["Jedi Kush",450],["Kimbo Kush",450],["King Louis XIII",431],["Kosher Kush",450],["Kryptonite",431],["Lamb's Bread",638],["Lemon Kush",488],["Lemon Meringue",431],["Lemon Sour Diesel",431],["Lucky Charms",488],["Mango Haze",450],["Northern Lights",450],["Orange Cookies",506],["Pink Cookies",488],["Pink Lemonade",488],["Pineapple Express",525],["Purple Diesel",431],["Purple Haze",544],["Romulan",469],["Sage N Sour",431],["Shark Shock",431],["Skywalker OG",431],["Sour Diesel",450],["Strawberry Cough",581],["Strawberry Diesel",431],["Sweet Tooth",488],["Tahoe Alien",431],["Tahoe OG Kush",469],["Tangie",431],["Trainwreck Haze",431],["Uncle Andy",806],["Vanilla Frosting",450],["Vanilla Kush",431],["Violator Kush",431],["Wedding Cake",431],["Wedding Crasher",544],["Yoda OG",488],["Zkittlez",656]];
+  const rows = members.map(function (name) { return ["member", name, "", true]; }).concat(strains.map(function (row) { return ["strain", row[0], row[1], true]; }));
+  sheet.getRange(2, 1, rows.length, 4).setValues(rows);
+}
+
+function readObjects_(name) {
+  const sheet = sheet_(name);
+  if (sheet.getLastRow() < 2) return [];
+  const values = sheet.getDataRange().getValues();
+  const headers = values.shift().map(String);
+  return values.filter(function (row) {
+    return row.some(function (cell) { return cell !== ""; });
+  }).map(function (row) {
+    return headers.reduce(function (object, header, index) {
+      object[header] = row[index] instanceof Date ? row[index].toISOString() : row[index];
+      return object;
+    }, {});
+  });
+}
+
+function appendObject_(name, headers, object) {
+  sheet_(name).appendRow(headers.map(function (header) { return object[header] === undefined ? "" : object[header]; }));
+}
+function normalizeGrow_(row) {
+  row.boxes = number_(row.boxes);
+  row.unitPrice = number_(row.unitPrice);
+  return row;
+}
+function normalizeSale_(row) {
+  ["boxes", "unitPrice", "gross", "growerPayout", "gangPayout", "sellerPayout"].forEach(function (key) { row[key] = number_(row[key]); });
+  return row;
+}
+function sheet_(name) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sheet) throw new Error("Missing sheet: " + name);
+  return sheet;
+}
+function withLock_(callback) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try { return callback(); } finally { lock.releaseLock(); }
+}
+function assertAccess_(code) {
+  const expected = PropertiesService.getScriptProperties().getProperty("ACCESS_CODE");
+  if (!expected) throw new Error("Tracker setup is incomplete.");
+  if (String(code || "") !== expected) throw new Error("Access code denied.");
+}
+function validateRequired_(record, fields) {
+  fields.forEach(function (field) {
+    if (record[field] === undefined || record[field] === null || record[field] === "") throw new Error("Missing required field: " + field);
+  });
+}
+function clean_(value, limit) { return String(value || "").trim().slice(0, limit || 200); }
+function number_(value) { const number = Number(value); return Number.isFinite(number) ? number : 0; }
+function round_(value) { return Math.round((number_(value) + Number.EPSILON) * 100) / 100; }
+function truthy_(value) { return value === true || String(value).toLowerCase() === "true" || value === 1; }
+function safeDate_(value) {
+  const date = new Date(value);
+  if (isNaN(date.getTime())) throw new Error("Invalid date.");
+  return date.toISOString();
+}
+function json_(value) {
+  return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON);
+}
