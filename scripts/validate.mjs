@@ -20,5 +20,17 @@ if (!js.includes("0.7") || !js.includes("0.15")) {
   console.error("Payout split constants are missing.");
   process.exit(1);
 }
+const backend = fs.readFileSync(path.join(root, "apps-script", "Code.gs"), "utf8");
+if (!js.includes("TRIMMINGS_PER_BOX = 15") || !backend.includes("TRIMMINGS_PER_BOX = 15")) {
+  console.error("The 15-trimmings-per-box conversion is missing.");
+  process.exit(1);
+}
+if (!html.includes('name="trimmings"') || !html.includes("data-admin-dialog") || !backend.includes("assertAdmin_")) {
+  console.error("Trimmings intake or manager authorization controls are missing.");
+  process.exit(1);
+}
+if (!js.includes("data-unlock-payouts") || !backend.includes('["verifyAdmin", "settleSale"')) {
+  console.error("Payout settlement is not protected by manager authorization.");
+  process.exit(1);
+}
 console.log("Tracker static validation passed.");
-

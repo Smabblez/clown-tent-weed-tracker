@@ -2,10 +2,11 @@
   "use strict";
 
   const config = window.TRACKER_CONFIG || {};
-  const state = { members: [], strains: [], grows: [], sales: [], weeks: [], activeWeek: null, accessCode: sessionStorage.getItem("ct_access") || "", busy: false };
+  const TRIMMINGS_PER_BOX = 15;
+  const state = { members: [], strains: [], grows: [], sales: [], weeks: [], activeWeek: null, accessCode: sessionStorage.getItem("ct_access") || "", adminCode: sessionStorage.getItem("ct_admin") || "", pendingView: "", busy: false };
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-  const money = new Intl.NumberFormat("en-US", { style: "currency", currency: config.CURRENCY || "USD", maximumFractionDigits: 0 });
+  const money = new Intl.NumberFormat("en-US", { style: "currency", currency: config.CURRENCY || "USD", minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
   const dateTime = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
   let toastTimer;
@@ -17,6 +18,12 @@
   }
   function num(value) { return Number(value) || 0; }
   function rounded(value) { return Math.round((num(value) + Number.EPSILON) * 100) / 100; }
+  function growTrimmings(grow) {
+    return num(grow.trimmings) || num(grow.boxes) * TRIMMINGS_PER_BOX;
+  }
+  function quantity(value, singular, plural) {
+    return number.format(value) + " " + (num(value) === 1 ? singular : plural);
+  }
   function formatDate(value) {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? "Unknown date" : dateTime.format(date);
@@ -46,7 +53,7 @@
   }
   async function request(action, payload) {
     if (!config.API_URL) throw new Error("The Google Sheet backend has not been connected yet.");
-    const body = Object.assign({ action: action, accessCode: state.accessCode }, payload || {});
+    const body = Object.assign({ action: action, accessCode: state.accessCode, adminCode: state.adminCode }, payload || {});
     const response = await fetch(config.API_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -76,6 +83,7 @@
       setSync("synced", "Shared sheet synced");
       renderAll();
       closeAccess();
+      if (state.pendingView) showView(state.pendingView);
       if (showNotice) toast("Latest sheet data loaded.");
     } catch (error) {
       setSync("error", "Sheet connection failed");
@@ -99,22 +107,42 @@
     if (dialog.open) dialog.close();
     $("[data-access-error]").textContent = "";
   }
+  function openAdmin(message) {
+    const dialog = $("[data-admin-dialog]");
+    $("[data-admin-error]").textContent = message || "";
+    if (!dialog.open) dialog.showModal();
+  }
+  function closeAdmin() {
+    const dialog = $("[data-admin-dialog]");
+    if (dialog.open) dialog.close();
+    $("[data-admin-error]").textContent = "";
+  }
+  function lockAdmin(message) {
+    sessionStorage.removeItem("ct_admin");
+    state.adminCode = "";
+    state.pendingView = "";
+    if (message) toast(message);
+  }
   function inventoryRows() {
     const rows = new Map();
     state.grows.forEach(function (grow) {
       const key = grow.grower + "|||" + grow.strain;
-      const row = rows.get(key) || { grower: grow.grower, strain: grow.strain, boxes: 0, price: num(grow.unitPrice) };
-      row.boxes += num(grow.boxes);
+      const row = rows.get(key) || { grower: grow.grower, strain: grow.strain, trimmings: 0, boxes: 0, price: num(grow.unitPrice) };
+      row.trimmings += growTrimmings(grow);
       row.price = num(grow.unitPrice) || row.price;
       rows.set(key, row);
     });
     state.sales.forEach(function (sale) {
       const key = sale.grower + "|||" + sale.strain;
-      const row = rows.get(key) || { grower: sale.grower, strain: sale.strain, boxes: 0, price: num(sale.unitPrice) };
-      row.boxes -= num(sale.boxes);
+      const row = rows.get(key) || { grower: sale.grower, strain: sale.strain, trimmings: 0, boxes: 0, price: num(sale.unitPrice) };
+      row.trimmings -= num(sale.boxes) * TRIMMINGS_PER_BOX;
       rows.set(key, row);
     });
-    return Array.from(rows.values()).filter(function (row) { return row.boxes > 0.0001; }).sort(function (a, b) { return b.boxes - a.boxes; });
+    return Array.from(rows.values()).map(function (row) {
+      row.trimmings = rounded(row.trimmings);
+      row.boxes = Math.max(0, Math.floor((row.trimmings + 0.0001) / TRIMMINGS_PER_BOX));
+      return row;
+    }).filter(function (row) { return row.trimmings > 0.0001; }).sort(function (a, b) { return b.trimmings - a.trimmings; });
   }
   function payoutSummary() {
     const people = new Map();
@@ -175,30 +203,32 @@
   }
   function activityHtml(row) {
     const grow = row.type === "grow";
+    const amount = grow ? growTrimmings(row) : num(row.boxes);
     const text = grow
-      ? esc(row.grower) + " logged " + number.format(row.boxes) + " boxes of " + esc(row.strain)
-      : esc(row.seller) + " sold " + number.format(row.boxes) + " boxes of " + esc(row.strain);
-    return '<div class="activity ' + row.type + '"><span class="activity-badge">' + (grow ? "+" : "$") + "</span><div><strong>" + text + "</strong><small>" + esc(formatDate(row.timestamp)) + "</small></div><b>" + (grow ? "+" + number.format(row.boxes) : money.format(row.gross)) + "</b></div>";
+      ? esc(row.grower) + " logged " + quantity(amount, "trimming", "trimmings") + " of " + esc(row.strain)
+      : esc(row.seller) + " sold " + quantity(amount, "box", "boxes") + " of " + esc(row.strain);
+    return '<div class="activity ' + row.type + '"><span class="activity-badge">' + (grow ? "+" : "$") + "</span><div><strong>" + text + "</strong><small>" + esc(formatDate(row.timestamp)) + "</small></div><b>" + (grow ? "+" + number.format(amount) : money.format(row.gross)) + "</b></div>";
   }
   function renderDashboard() {
     const inventory = inventoryRows();
     const payouts = payoutSummary();
     const currentSales = state.sales.filter(function (sale) { return !state.activeWeek || sale.weekId === state.activeWeek.id; });
     const currentGrows = state.grows.filter(function (grow) { return !state.activeWeek || grow.weekId === state.activeWeek.id; });
-    const stock = inventory.reduce(function (sum, row) { return sum + row.boxes; }, 0);
+    const stockTrimmings = inventory.reduce(function (sum, row) { return sum + row.trimmings; }, 0);
+    const stockBoxes = inventory.reduce(function (sum, row) { return sum + row.boxes; }, 0);
     const gross = currentSales.reduce(function (sum, sale) { return sum + num(sale.gross); }, 0);
-    const grown = currentGrows.reduce(function (sum, grow) { return sum + num(grow.boxes); }, 0);
+    const grown = currentGrows.reduce(function (sum, grow) { return sum + growTrimmings(grow); }, 0);
     const owed = payouts.people.reduce(function (sum, person) { return sum + person.total; }, 0);
     $("#dashboardMetrics").innerHTML = [
-      metric("Boxes on shelves", number.format(stock), "Carries forward across weeks"),
-      metric("Grown this week", number.format(grown), currentGrows.length + " grow entries"),
+      metric("Trimmings on shelves", number.format(stockTrimmings), quantity(stockBoxes, "sale-ready box", "sale-ready boxes")),
+      metric("Grown this week", quantity(grown, "trimming", "trimmings"), currentGrows.length + " grow entries"),
       metric("Sales this week", money.format(gross), currentSales.length + " recorded sales"),
       metric("Member payouts due", money.format(owed), payouts.people.length + " members owed"),
     ].join("");
     $("#inventoryTable").innerHTML = inventory.length ? table(
-      ["Grower", "Strain", "Boxes", "Reference value"],
+      ["Grower", "Strain", "Trimmings", "Sale-ready boxes"],
       inventory.slice(0, 10).map(function (row) {
-        return [esc(row.grower), esc(row.strain), { value: number.format(row.boxes), num: true }, { value: money.format(row.price), num: true }];
+        return [esc(row.grower), esc(row.strain), { value: number.format(row.trimmings), num: true }, { value: number.format(row.boxes), num: true }];
       })
     ) : empty("No stock yet. Log the first grow to begin.");
     $("#dashboardPayouts").innerHTML = payouts.people.length ? payouts.people.slice(0, 6).map(function (person) {
@@ -209,6 +239,9 @@
     $("#recentActivity").innerHTML = recent.length ? recent.map(activityHtml).join("") : empty("Activity will appear here after the first grow or sale.");
   }
   function queueActions(sale) {
+    if (!state.adminCode) {
+      return '<div class="queue-actions"><button class="mini-button" type="button" data-unlock-payouts>Manager unlock</button></div>';
+    }
     const buttons = [];
     if (!sale.growerPaidAt) buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="grower">Pay grower</button>');
     if (!sale.sellerPaidAt) buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="seller">Pay seller</button>');
@@ -237,7 +270,7 @@
       ["Sale", "Grower share", "Seller share", "Settle"],
       unsettled.map(function (sale) {
         return [
-          "<strong>" + esc(sale.strain) + "</strong><small>" + esc(formatDate(sale.timestamp)) + " · " + number.format(sale.boxes) + " boxes</small>",
+          "<strong>" + esc(sale.strain) + "</strong><small>" + esc(formatDate(sale.timestamp)) + " · " + quantity(sale.boxes, "box", "boxes") + "</small>",
           sale.growerPaidAt ? '<span class="paid">Paid ' + esc(sale.grower) + "</span>" : esc(sale.grower) + " · " + money.format(sale.growerPayout),
           sale.sellerPaidAt ? '<span class="paid">Paid ' + esc(sale.seller) + "</span>" : esc(sale.seller) + " · " + money.format(sale.sellerPayout),
           { value: queueActions(sale), raw: true, num: true }
@@ -254,15 +287,17 @@
       return (type === "all" || row.type === type) && (week === "all" || row.weekId === week) && (!query || text.includes(query));
     });
     $("#ledgerTable").innerHTML = rows.length ? table(
-      ["When", "Type", "Member / source", "Strain", "Boxes", "Value"],
+      ["When", "Type", "Member / source", "Strain", "Quantity", "Reference / gross"],
       rows.map(function (row) {
+        const grow = row.type === "grow";
+        const trimmings = growTrimmings(row);
         return [
           esc(formatDate(row.timestamp)),
-          row.type === "grow" ? '<span class="paid">Grow</span>' : "Sale",
-          row.type === "grow" ? esc(row.grower) : "<strong>" + esc(row.seller) + "</strong><small>Stock: " + esc(row.grower) + "</small>",
+          grow ? '<span class="paid">Grow</span>' : "Sale",
+          grow ? esc(row.grower) : "<strong>" + esc(row.seller) + "</strong><small>Stock: " + esc(row.grower) + "</small>",
           esc(row.strain),
-          { value: number.format(row.boxes), num: true },
-          { value: row.type === "grow" ? money.format(num(row.boxes) * num(row.unitPrice)) : money.format(row.gross), num: true }
+          { value: grow ? quantity(trimmings, "trimming", "trimmings") : quantity(row.boxes, "box", "boxes"), num: true },
+          { value: grow ? money.format(trimmings / TRIMMINGS_PER_BOX * num(row.unitPrice)) : money.format(row.gross), num: true }
         ];
       })
     ) : empty("No ledger records match that filter.");
@@ -277,11 +312,11 @@
   }
   function renderInventoryStrains() {
     const grower = $("[data-inventory-growers]").value;
-    const rows = inventoryRows().filter(function (row) { return row.grower === grower; });
+    const rows = inventoryRows().filter(function (row) { return row.grower === grower && row.boxes > 0; });
     const select = $("[data-inventory-strains]");
     const current = select.value;
     select.innerHTML = '<option value="">Choose available stock</option>' + rows.map(function (row) {
-      return '<option value="' + esc(row.strain) + '" data-stock="' + row.boxes + '" data-price="' + row.price + '">' + esc(row.strain) + " · " + number.format(row.boxes) + " boxes</option>";
+      return '<option value="' + esc(row.strain) + '" data-stock="' + row.boxes + '" data-trimmings="' + row.trimmings + '" data-price="' + row.price + '">' + esc(row.strain) + " · " + quantity(row.boxes, "box", "boxes") + "</option>";
     }).join("");
     if (rows.some(function (row) { return row.strain === current; })) select.value = current;
     updateStockHint();
@@ -289,7 +324,8 @@
   function updateStockHint() {
     const option = $("[data-inventory-strains]").selectedOptions[0];
     const stock = num(option && option.dataset.stock);
-    $("[data-available-stock]").textContent = stock ? number.format(stock) + " boxes available from this grower." : "Choose a grower and strain to see stock.";
+    const trimmings = num(option && option.dataset.trimmings);
+    $("[data-available-stock]").textContent = stock ? quantity(stock, "box", "boxes") + " available; " + quantity(trimmings, "trimming", "trimmings") + " remain in this lot." : "Choose a grower and strain to see stock.";
   }
   function renderSelects() {
     const memberOptions = state.members.map(function (name) { return '<option value="' + esc(name) + '">' + esc(name) + "</option>"; }).join("");
@@ -304,7 +340,7 @@
       select.innerHTML = '<option value="">Choose a strain</option>' + strainOptions;
       if (state.strains.some(function (strain) { return strain.name === current; })) select.value = current;
     });
-    const growers = Array.from(new Set(inventoryRows().map(function (row) { return row.grower; }))).sort();
+    const growers = Array.from(new Set(inventoryRows().filter(function (row) { return row.boxes > 0; }).map(function (row) { return row.grower; }))).sort();
     const growerSelect = $("[data-inventory-growers]");
     const current = growerSelect.value;
     growerSelect.innerHTML = '<option value="">Choose a grower</option>' + growers.map(function (name) { return '<option value="' + esc(name) + '">' + esc(name) + "</option>"; }).join("");
@@ -322,8 +358,9 @@
   }
   function renderWeeks() {
     $("[data-active-week]").textContent = state.activeWeek ? state.activeWeek.label : "No active week";
+    $("[data-manager-week]").textContent = state.activeWeek ? state.activeWeek.label : "No active week";
     const currentSales = state.sales.filter(function (sale) { return state.activeWeek && sale.weekId === state.activeWeek.id; });
-    $("[data-week-summary]").textContent = currentSales.length + " sales this week · shelf stock and unpaid balances roll forward";
+    $("[data-week-summary]").textContent = quantity(currentSales.length, "sale", "sales") + " this week · shelf stock and unpaid balances roll forward";
     const select = $("#ledgerWeek");
     const current = select.value;
     select.innerHTML = '<option value="all">All weeks</option>' + state.weeks.slice().reverse().map(function (week) {
@@ -332,6 +369,11 @@
     if (state.weeks.some(function (week) { return week.id === current; })) select.value = current;
   }
   function showView(name, updateHash) {
+    if (name === "manager" && !state.adminCode) {
+      state.pendingView = "manager";
+      openAdmin();
+      return;
+    }
     $$("[data-view-panel]").forEach(function (panel) {
       panel.hidden = panel.dataset.viewPanel !== name;
       panel.classList.toggle("active", panel.dataset.viewPanel === name);
@@ -356,6 +398,11 @@
       return true;
     } catch (error) {
       setSync("error", "Save failed");
+      if (/manager|admin/i.test(error.message)) {
+        lockAdmin();
+        state.pendingView = "manager";
+        openAdmin(error.message);
+      }
       toast(error.message);
       return false;
     } finally {
@@ -395,8 +442,8 @@
       csvDownload("clown-tent-payouts-" + stamp + ".csv", [["Member", "Grower due", "Seller due", "Total due"]].concat(payoutSummary().people.map(function (row) { return [row.name, row.grower, row.seller, row.total]; })));
       return;
     }
-    csvDownload("clown-tent-ledger-" + stamp + ".csv", [["Date", "Type", "Grower", "Seller", "Strain", "Boxes", "Price per box", "Gross", "Grower payout", "Gang payout", "Seller payout", "Reference / notes"]].concat(ledgerRows().map(function (row) {
-      return [row.timestamp, row.type, row.grower, row.seller || "", row.strain, row.boxes, row.unitPrice, row.gross || "", row.growerPayout || "", row.gangPayout || "", row.sellerPayout || "", row.reference || row.notes || ""];
+    csvDownload("clown-tent-ledger-" + stamp + ".csv", [["Date", "Type", "Grower", "Seller", "Strain", "Trimmings (grow)", "Boxes (sale)", "Price per box", "Gross", "Grower payout", "Gang payout", "Seller payout", "Reference / notes"]].concat(ledgerRows().map(function (row) {
+      return [row.timestamp, row.type, row.grower, row.seller || "", row.strain, row.type === "grow" ? growTrimmings(row) : "", row.type === "sale" ? row.boxes : "", row.unitPrice, row.gross || "", row.growerPayout || "", row.gangPayout || "", row.sellerPayout || "", row.reference || row.notes || ""];
     })));
   }
 
@@ -408,17 +455,41 @@
     sessionStorage.setItem("ct_access", code);
     try { await loadData(); } catch (_) {}
   });
+  $("#adminForm").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const code = String(new FormData(form).get("adminCode") || "").trim();
+    if (!code) return;
+    state.adminCode = code;
+    $("[data-admin-error]").textContent = "";
+    try {
+      await request("verifyAdmin");
+      sessionStorage.setItem("ct_admin", code);
+      closeAdmin();
+      form.reset();
+      const destination = state.pendingView || "manager";
+      state.pendingView = "";
+      renderAll();
+      showView(destination);
+    } catch (error) {
+      lockAdmin();
+      $("[data-admin-error]").textContent = error.message;
+    }
+  });
   $("#growForm").addEventListener("submit", async function (event) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = Object.fromEntries(new FormData(form));
-    const ok = await mutate("addGrow", { record: { timestamp: data.date, grower: data.grower, strain: data.strain, boxes: num(data.boxes), unitPrice: num(data.price), notes: data.notes } }, "Grow added to shared inventory.");
+    const trimmings = num(data.trimmings);
+    if (!Number.isInteger(trimmings) || trimmings < 1) { toast("Enter a whole number of trimmings."); return; }
+    const ok = await mutate("addGrow", { record: { timestamp: data.date, grower: data.grower, strain: data.strain, trimmings: trimmings, unitPrice: num(data.price), notes: data.notes } }, "Grow trimmings added to shared inventory.");
     if (ok) { form.reset(); form.date.value = nowInput(); }
   });
   $("#saleForm").addEventListener("submit", async function (event) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = Object.fromEntries(new FormData(form));
+    if (!Number.isInteger(num(data.boxes)) || num(data.boxes) < 1) { toast("Sales must use whole boxes."); return; }
     const lot = inventoryRows().find(function (row) { return row.grower === data.grower && row.strain === data.strain; });
     const available = lot ? lot.boxes : 0;
     if (num(data.boxes) > available) { toast("Only " + number.format(available) + " boxes are available for that lot."); return; }
@@ -444,16 +515,22 @@
     const actionElement = event.target.closest("[data-action]");
     const action = actionElement && actionElement.dataset.action;
     if (action === "refresh") { try { await loadData(true); } catch (_) {} }
-    if (action === "sign-out") { sessionStorage.removeItem("ct_access"); state.accessCode = ""; openAccess("Tracker locked."); }
+    if (action === "sign-out") { sessionStorage.removeItem("ct_access"); state.accessCode = ""; lockAdmin(); showView("dashboard"); openAccess("Tracker locked."); }
+    if (action === "admin-lock") { lockAdmin("Manager controls locked."); showView("dashboard"); }
     if (action === "rollover-week") {
       const suggested = "Week of " + new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date());
-      const label = prompt("Name the new tracking week. Shelf stock and unpaid balances will carry forward.", suggested);
+      const label = prompt("Name the new tracking week. Shelf trimmings, sale-ready boxes, and unpaid balances will carry forward.", suggested);
       if (label && confirm("Close " + (state.activeWeek ? state.activeWeek.label : "the current week") + " and start " + label + "? No inventory or payout history will be deleted.")) {
         await mutate("rolloverWeek", { label: label }, "New tracking week started. Stock and balances carried forward.");
       }
     }
     const settle = event.target.closest("[data-settle]");
-    if (settle) await mutate("settleSale", { id: settle.dataset.settle, role: settle.dataset.role }, "Payout status updated.");
+    if (settle && state.adminCode) await mutate("settleSale", { id: settle.dataset.settle, role: settle.dataset.role }, "Payout status updated.");
+    const unlockPayouts = event.target.closest("[data-unlock-payouts]");
+    if (unlockPayouts) {
+      state.pendingView = "payouts";
+      openAdmin("Manager access is required to mark payouts paid.");
+    }
     const removeMemberElement = event.target.closest("[data-remove-member]");
     const removeMember = removeMemberElement && removeMemberElement.dataset.removeMember;
     if (removeMember && confirm("Remove " + removeMember + " from future forms? Existing records stay intact.")) await mutate("removeConfig", { kind: "member", name: removeMember }, "Member removed.");
@@ -481,7 +558,11 @@
   $("#growForm").date.value = nowInput();
   $("#saleForm").date.value = nowInput();
   const initialView = location.hash.slice(1);
-  showView($('[data-view="' + initialView + '"]') ? initialView : "dashboard", false);
+  const requestedView = $('[data-view="' + initialView + '"]') ? initialView : "dashboard";
+  if (requestedView === "manager" && !state.accessCode) {
+    state.pendingView = "manager";
+    showView("dashboard", false);
+  } else showView(requestedView, false);
   if (state.accessCode) loadData().catch(function () {});
   else openAccess(config.API_URL ? "" : "The sheet connection is being finished. The interface is ready.");
 })();

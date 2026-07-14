@@ -10,6 +10,14 @@ A shared GTA RP grow, sales, inventory, and payout tracker. The website is a sta
 
 The server calculates the split from the recorded gross sale. Client-supplied payout numbers are ignored.
 
+## Inventory units
+
+- Grows are logged in whole trimmings.
+- Sales are logged in whole boxes.
+- 15 trimmings create 1 sale-ready box.
+
+Partial stock remains attached to its grower and carries into future weeks until there are enough trimmings for another full box.
+
 ## Data flow
 
 1. A member unlocks the site with the gang access code.
@@ -27,7 +35,7 @@ Member statements keep three separate totals: earned, paid out, and remaining du
 
 ## Access
 
-The public site contains no gang access code. The code is stored only in the Apps Script project's private Script Properties and checked on every request.
+The public site contains no gang or manager password. Both codes are stored only in the Apps Script project's private Script Properties and checked on the server. Manager authorization protects payout settlement buttons, weekly rollover, roster changes, strains, and prices. Everyone with normal tracker access can still view payout balances and history.
 
 ## Setup and validation
 

@@ -5,8 +5,10 @@ const SHEET_NAMES = Object.freeze({
   weeks: "Web_Weeks"
 });
 
+const TRIMMINGS_PER_BOX = 15;
+
 const HEADERS = Object.freeze({
-  grows: ["id", "timestamp", "grower", "strain", "boxes", "unitPrice", "notes", "createdAt", "weekId"],
+  grows: ["id", "timestamp", "grower", "strain", "trimmings", "unitPrice", "notes", "createdAt", "weekId"],
   sales: ["id", "timestamp", "seller", "grower", "strain", "boxes", "unitPrice", "gross", "growerPayout", "gangPayout", "sellerPayout", "reference", "growerPaidAt", "sellerPaidAt", "createdAt", "weekId"],
   config: ["kind", "name", "price", "active"],
   weeks: ["id", "label", "startedAt", "closedAt", "status", "createdAt"]
@@ -22,7 +24,9 @@ function doPost(e) {
     assertAccess_(body.accessCode);
     const action = String(body.action || "");
     let result;
+    if (["verifyAdmin", "settleSale", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
     if (action === "bootstrap") result = bootstrap_();
+    else if (action === "verifyAdmin") result = { authorized: true };
     else if (action === "addGrow") result = addGrow_(body.record || {});
     else if (action === "addSale") result = addSale_(body.record || {});
     else if (action === "settleSale") result = settleSale_(body.id, body.role);
@@ -44,6 +48,7 @@ function setupTracker() {
     seedConfig_();
     const properties = PropertiesService.getScriptProperties();
     if (!properties.getProperty("ACCESS_CODE")) throw new Error("Set ACCESS_CODE in Project Settings, Script properties, then run setupTracker again.");
+    if (!properties.getProperty("ADMIN_CODE")) throw new Error("Set ADMIN_CODE in Project Settings, Script properties, then run setupTracker again.");
     return "Tracker ready.";
   } finally {
     lock.releaseLock();
@@ -64,9 +69,9 @@ function bootstrap_() {
 }
 
 function addGrow_(record) {
-  validateRequired_(record, ["timestamp", "grower", "strain", "boxes"]);
-  const boxes = number_(record.boxes);
-  if (boxes <= 0) throw new Error("Boxes must be greater than zero.");
+  validateRequired_(record, ["timestamp", "grower", "strain", "trimmings"]);
+  const trimmings = number_(record.trimmings);
+  if (!Number.isInteger(trimmings) || trimmings <= 0) throw new Error("Trimmings must be a whole number greater than zero.");
   const week = activeWeek_();
   withLock_(function () {
     appendObject_(SHEET_NAMES.grows, HEADERS.grows, {
@@ -74,7 +79,7 @@ function addGrow_(record) {
       timestamp: safeDate_(record.timestamp),
       grower: clean_(record.grower, 60),
       strain: clean_(record.strain, 80),
-      boxes: boxes,
+      trimmings: trimmings,
       unitPrice: Math.max(0, number_(record.unitPrice)),
       notes: clean_(record.notes, 300),
       createdAt: new Date().toISOString(),
@@ -88,7 +93,7 @@ function addSale_(record) {
   validateRequired_(record, ["timestamp", "seller", "grower", "strain", "boxes", "unitPrice"]);
   const boxes = number_(record.boxes);
   const unitPrice = number_(record.unitPrice);
-  if (boxes <= 0) throw new Error("Boxes must be greater than zero.");
+  if (!Number.isInteger(boxes) || boxes <= 0) throw new Error("Boxes must be a whole number greater than zero.");
   if (unitPrice < 0) throw new Error("Price cannot be negative.");
   const week = activeWeek_();
   withLock_(function () {
@@ -210,13 +215,13 @@ function activeWeek_() {
 }
 
 function availableBoxes_(grower, strain) {
-  const grown = readObjects_(SHEET_NAMES.grows).filter(function (row) {
+  const grownTrimmings = readObjects_(SHEET_NAMES.grows).filter(function (row) {
     return String(row.grower) === String(grower) && String(row.strain) === String(strain);
-  }).reduce(function (sum, row) { return sum + number_(row.boxes); }, 0);
-  const sold = readObjects_(SHEET_NAMES.sales).filter(function (row) {
+  }).reduce(function (sum, row) { return sum + trimmingsForGrow_(row); }, 0);
+  const soldTrimmings = readObjects_(SHEET_NAMES.sales).filter(function (row) {
     return String(row.grower) === String(grower) && String(row.strain) === String(strain);
-  }).reduce(function (sum, row) { return sum + number_(row.boxes); }, 0);
-  return round_(grown - sold);
+  }).reduce(function (sum, row) { return sum + number_(row.boxes) * TRIMMINGS_PER_BOX; }, 0);
+  return Math.max(0, Math.floor((grownTrimmings - soldTrimmings + 0.0001) / TRIMMINGS_PER_BOX));
 }
 
 function ensureSheets_() {
@@ -225,11 +230,19 @@ function ensureSheets_() {
     let sheet = book.getSheetByName(SHEET_NAMES[key]);
     if (!sheet) sheet = book.insertSheet(SHEET_NAMES[key]);
     const headers = HEADERS[key];
-    const current = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    const lastColumn = Math.max(sheet.getLastColumn(), 1);
+    const current = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(String);
     if (current.join("") === "") {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#173c17").setFontColor("#ffffff");
       sheet.setFrozenRows(1);
       sheet.autoResizeColumns(1, headers.length);
+    } else {
+      const missing = headers.filter(function (header) { return current.indexOf(header) === -1; });
+      if (missing.length) {
+        const start = current.length + 1;
+        sheet.getRange(1, start, 1, missing.length).setValues([missing]).setFontWeight("bold").setBackground("#173c17").setFontColor("#ffffff");
+        sheet.autoResizeColumns(start, missing.length);
+      }
     }
   });
 }
@@ -259,10 +272,15 @@ function readObjects_(name) {
 }
 
 function appendObject_(name, headers, object) {
-  sheet_(name).appendRow(headers.map(function (header) { return object[header] === undefined ? "" : object[header]; }));
+  const sheet = sheet_(name);
+  const actualHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+  sheet.appendRow(actualHeaders.map(function (header) { return object[header] === undefined ? "" : object[header]; }));
+}
+function trimmingsForGrow_(row) {
+  return number_(row.trimmings) || number_(row.boxes) * TRIMMINGS_PER_BOX;
 }
 function normalizeGrow_(row) {
-  row.boxes = number_(row.boxes);
+  row.trimmings = trimmingsForGrow_(row);
   row.unitPrice = number_(row.unitPrice);
   return row;
 }
@@ -284,6 +302,11 @@ function assertAccess_(code) {
   const expected = PropertiesService.getScriptProperties().getProperty("ACCESS_CODE");
   if (!expected) throw new Error("Tracker setup is incomplete.");
   if (String(code || "") !== expected) throw new Error("Access code denied.");
+}
+function assertAdmin_(code) {
+  const expected = PropertiesService.getScriptProperties().getProperty("ADMIN_CODE");
+  if (!expected) throw new Error("Manager access is not configured.");
+  if (String(code || "") !== expected) throw new Error("Manager password denied.");
 }
 function validateRequired_(record, fields) {
   fields.forEach(function (field) {

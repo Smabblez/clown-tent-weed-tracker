@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0a0d09">
   <meta name="description" content="The Clown Tent weed operation ledger for GTA roleplay grow intake, sales, inventory, and payouts.">
   <title>The Clown Tent — Weed Operations</title>
-  <link rel="stylesheet" href="styles.css?v=1">
+  <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
   <a class="skip-link" href="#app-main">Skip to tracker</a>
@@ -27,14 +27,14 @@
     <button type="button" data-view="sales"><span aria-hidden="true">$</span><b>Record sale</b></button>
     <button type="button" data-view="payouts"><span aria-hidden="true">%</span><b>Payouts</b></button>
     <button type="button" data-view="ledger"><span aria-hidden="true">≡</span><b>Ledger</b></button>
-    <button type="button" data-view="settings"><span aria-hidden="true">⚙</span><b>Settings</b></button>
+    <button type="button" data-view="manager"><span aria-hidden="true">⚙</span><b>Manager</b></button>
   </nav>
 
   <main id="app-main" tabindex="-1">
     <aside class="week-bar" aria-label="Active tracking week">
       <div><span class="status-dot" aria-hidden="true"></span><p><small>ACTIVE PERIOD</small><strong data-active-week>Loading current week…</strong></p></div>
       <p data-week-summary>Inventory and unpaid payouts carry forward automatically.</p>
-      <button class="button secondary" type="button" data-action="rollover-week">Close week + start next</button>
+      <button class="button secondary" type="button" data-go="manager">Manager controls</button>
     </aside>
     <section class="view active" data-view-panel="dashboard" aria-labelledby="dashboard-title">
       <div class="page-heading">
@@ -59,7 +59,7 @@
     </section>
 
     <section class="view" data-view-panel="intake" aria-labelledby="intake-title" hidden>
-      <div class="page-heading compact"><div><p class="eyebrow">STEP 01 / STOCK IN</p><h1 id="intake-title">Log a grow.</h1><p>Credit the grower and add finished boxes to inventory.</p></div></div>
+      <div class="page-heading compact"><div><p class="eyebrow">STEP 01 / STOCK IN</p><h1 id="intake-title">Log a grow.</h1><p>Credit the grower and add harvested trimmings to inventory.</p></div></div>
       <div class="form-layout">
         <form class="panel tracker-form" id="growForm">
           <div class="field-grid two">
@@ -68,13 +68,13 @@
           </div>
           <label><span>Strain</span><select name="strain" data-strains required></select></label>
           <div class="field-grid two">
-            <label><span>Finished boxes</span><input name="boxes" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="0" required></label>
+            <label><span>Trimmings harvested</span><input name="trimmings" type="number" inputmode="numeric" min="1" step="1" placeholder="0" required><small>15 trimmings make 1 sale-ready box.</small></label>
             <label><span>Reference value per box</span><input name="price" type="number" inputmode="decimal" min="0" step="1" placeholder="0" required></label>
           </div>
           <label><span>Notes <i>optional</i></span><textarea name="notes" rows="3" placeholder="Batch, location, quality, or anything worth remembering"></textarea></label>
           <button class="button primary full" type="submit">Add to inventory</button>
         </form>
-        <aside class="panel form-aside"><p class="eyebrow">WHAT THIS DOES</p><h2>Stock belongs to its grower.</h2><p>A sale must be tied back to the grower who supplied those boxes. That keeps the 70% payout accurate.</p><div class="formula"><span>Grower</span><strong>70%</strong><span>Gang</span><strong>15%</strong><span>Seller</span><strong>15%</strong></div></aside>
+        <aside class="panel form-aside"><p class="eyebrow">WHAT THIS DOES</p><h2>Stock belongs to its grower.</h2><p>Grows are counted in trimmings. Every 15 trimmings become 1 box that can be sold for that grower, keeping the 70% payout accurate.</p><div class="formula"><span>Grower</span><strong>70%</strong><span>Gang</span><strong>15%</strong><span>Seller</span><strong>15%</strong></div></aside>
       </div>
     </section>
 
@@ -88,7 +88,7 @@
           </div>
           <label><span>Strain from inventory</span><select name="strain" data-inventory-strains required></select><small data-available-stock>Choose a grower to see stock.</small></label>
           <div class="field-grid two">
-            <label><span>Boxes sold</span><input name="boxes" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="0" required></label>
+            <label><span>Boxes sold</span><input name="boxes" type="number" inputmode="numeric" min="1" step="1" placeholder="0" required><small>Each box uses 15 trimmings from the selected grower.</small></label>
             <label><span>Sale price per box</span><input name="price" type="number" inputmode="decimal" min="0" step="1" placeholder="0" required></label>
           </div>
           <div class="field-grid two">
@@ -105,7 +105,7 @@
       <div class="page-heading compact"><div><p class="eyebrow">STEP 03 / SETTLEMENT</p><h1 id="payouts-title">Payouts.</h1><p>See exactly who is owed, why they are owed, and what has already been settled.</p></div><div class="heading-actions"><button class="button secondary" type="button" data-export="payouts">Export payout CSV</button></div></div>
       <div class="metric-grid payout-metrics" id="payoutMetrics"></div>
       <article class="panel"><div class="panel-heading"><div><p class="eyebrow">BY MEMBER</p><h2>Outstanding totals</h2></div></div><div id="memberPayouts"></div></article>
-      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">PAYMENT QUEUE</p><h2>Unsettled sales</h2></div></div><div id="payoutQueue"></div></article>
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">PAYMENT QUEUE</p><h2>Unsettled sales</h2><p>Everyone can view balances. Manager access is required to mark them paid.</p></div></div><div id="payoutQueue"></div></article>
     </section>
 
     <section class="view" data-view-panel="ledger" aria-labelledby="ledger-title" hidden>
@@ -116,8 +116,12 @@
       </article>
     </section>
 
-    <section class="view" data-view-panel="settings" aria-labelledby="settings-title" hidden>
-      <div class="page-heading compact"><div><p class="eyebrow">CONTROL ROOM</p><h1 id="settings-title">Settings.</h1><p>Manage the people and prices behind the ledger.</p></div></div>
+    <section class="view" data-view-panel="manager" aria-labelledby="manager-title" hidden>
+      <div class="page-heading compact"><div><p class="eyebrow">ADMIN CONTROL ROOM</p><h1 id="manager-title">Manager.</h1><p>Close tracking weeks and manage the people, strains, and prices behind the ledger.</p></div><div class="heading-actions"><button class="button danger" type="button" data-action="admin-lock">Lock manager</button></div></div>
+      <article class="panel manager-week-panel">
+        <div><p class="eyebrow">WEEKLY ROLLOVER</p><h2 data-manager-week>Current week</h2><p>Closing the week starts a fresh reporting period. Shelf trimmings, sale-ready boxes, unpaid payouts, and history all carry forward.</p></div>
+        <button class="button primary" type="button" data-action="rollover-week">Close week + start next</button>
+      </article>
       <div class="settings-grid">
         <article class="panel"><div class="panel-heading"><div><p class="eyebrow">ROSTER</p><h2>Members</h2></div></div><form class="inline-form" id="memberForm"><label><span class="sr-only">New member name</span><input name="name" maxlength="40" placeholder="New member name" required></label><button class="button primary" type="submit">Add</button></form><div class="chip-list" id="memberList"></div></article>
         <article class="panel"><div class="panel-heading"><div><p class="eyebrow">PRODUCT LIST</p><h2>Strains and prices</h2></div></div><form class="inline-form strain-form" id="strainForm"><label><span class="sr-only">New strain</span><input name="name" maxlength="60" placeholder="Strain name" required></label><label><span class="sr-only">Price per box</span><input name="price" type="number" inputmode="decimal" min="0" step="1" placeholder="Price" required></label><button class="button primary" type="submit">Add</button></form><div class="strain-list" id="strainList"></div></article>
@@ -137,8 +141,19 @@
       <small data-access-error role="alert"></small>
     </form>
   </dialog>
+  <dialog class="access-dialog" data-admin-dialog aria-labelledby="admin-title">
+    <form method="dialog" id="adminForm">
+      <div class="access-mark" aria-hidden="true">MGR</div>
+      <p class="eyebrow">MANAGER ACCESS</p>
+      <h2 id="admin-title">Unlock manager controls.</h2>
+      <p>This protects payout buttons, weekly rollover, roster changes, strains, and pricing.</p>
+      <label><span>Manager password</span><input name="adminCode" type="password" autocomplete="current-password" required></label>
+      <button class="button primary full" type="submit">Unlock manager</button>
+      <small data-admin-error role="alert"></small>
+    </form>
+  </dialog>
   <div class="toast" role="status" aria-live="polite" data-toast></div>
   <script src="config.js?v=1"></script>
-  <script src="app.js?v=1"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>
