@@ -10,10 +10,10 @@ const SHEET_NAMES = Object.freeze({
 const TRIMMINGS_PER_BOX = 15;
 
 const HEADERS = Object.freeze({
-  grows: ["id", "timestamp", "grower", "strain", "trimmings", "unitPrice", "notes", "createdAt", "weekId"],
+  grows: ["id", "timestamp", "grower", "strain", "trimmings", "unitPrice", "notes", "createdAt", "weekId", "deletedAt", "deleteReason"],
   supplies: ["id", "timestamp", "buyer", "item", "quantity", "unitCost", "total", "notes", "createdAt", "weekId"],
-  sales: ["id", "timestamp", "seller", "grower", "strain", "boxes", "unitPrice", "gross", "supplyDeduction", "growerPayout", "gangPayout", "sellerPayout", "reference", "growerPaidAt", "sellerPaidAt", "createdAt", "weekId"],
-  corrections: ["id", "timestamp", "recordType", "recordId", "beforeJson", "afterJson", "reason", "createdAt"],
+  sales: ["id", "timestamp", "seller", "grower", "strain", "boxes", "unitPrice", "gross", "supplyDeduction", "growerPayout", "gangPayout", "sellerPayout", "reference", "growerPaidAt", "sellerPaidAt", "createdAt", "weekId", "deletedAt", "deleteReason"],
+  corrections: ["id", "timestamp", "recordType", "recordId", "action", "beforeJson", "afterJson", "reason", "createdAt"],
   config: ["kind", "name", "price", "active"],
   weeks: ["id", "label", "startedAt", "closedAt", "status", "createdAt"]
 });
@@ -28,7 +28,7 @@ function doPost(e) {
     assertAccess_(body.accessCode);
     const action = String(body.action || "");
     let result;
-    if (["verifyAdmin", "updateGrow", "updateSale", "settleSale", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
+    if (["verifyAdmin", "updateGrow", "updateSale", "deleteGrow", "deleteSale", "settleSale", "reopenPayout", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
     if (action === "bootstrap") result = bootstrap_();
     else if (action === "verifyAdmin") result = { authorized: true };
     else if (action === "addGrow") result = addGrow_(body.record || {});
@@ -36,7 +36,10 @@ function doPost(e) {
     else if (action === "addSale") result = addSale_(body.record || {});
     else if (action === "updateGrow") result = updateGrow_(body.id, body.record || {}, body.reason);
     else if (action === "updateSale") result = updateSale_(body.id, body.record || {}, body.reason);
+    else if (action === "deleteGrow") result = deleteGrow_(body.id, body.reason);
+    else if (action === "deleteSale") result = deleteSale_(body.id, body.reason);
     else if (action === "settleSale") result = settleSale_(body.id, body.role);
+    else if (action === "reopenPayout") result = reopenPayout_(body.id, body.role, body.reason);
     else if (action === "rolloverWeek") result = rolloverWeek_(body.label);
     else if (action === "upsertConfig") result = upsertConfig_(body.kind, body.name, body.price);
     else if (action === "removeConfig") result = removeConfig_(body.kind, body.name);
@@ -68,9 +71,9 @@ function bootstrap_() {
   return {
     members: configs.filter(function (row) { return row.kind === "member" && truthy_(row.active); }).map(function (row) { return row.name; }).sort(),
     strains: configs.filter(function (row) { return row.kind === "strain" && truthy_(row.active); }).map(function (row) { return { name: row.name, price: number_(row.price) }; }).sort(function (a, b) { return a.name.localeCompare(b.name); }),
-    grows: readObjects_(SHEET_NAMES.grows).map(normalizeGrow_),
+    grows: readActiveObjects_(SHEET_NAMES.grows).map(normalizeGrow_),
     supplies: readObjects_(SHEET_NAMES.supplies).map(normalizeSupply_),
-    sales: readObjects_(SHEET_NAMES.sales).map(normalizeSale_),
+    sales: readActiveObjects_(SHEET_NAMES.sales).map(normalizeSale_),
     corrections: readObjects_(SHEET_NAMES.corrections),
     weeks: readObjects_(SHEET_NAMES.weeks),
     activeWeek: activeWeek_()
@@ -170,6 +173,7 @@ function updateGrow_(id, record, reason) {
   withLock_(function () {
     const located = findObjectRow_(SHEET_NAMES.grows, id);
     const before = normalizeGrow_(located.object);
+    if (before.deletedAt) throw new Error("That grow has already been deleted.");
     const after = Object.assign({}, before, {
       timestamp: safeDate_(record.timestamp),
       grower: clean_(record.grower, 60),
@@ -178,10 +182,10 @@ function updateGrow_(id, record, reason) {
       unitPrice: Math.max(0, number_(record.unitPrice)),
       notes: clean_(record.notes, 300)
     });
-    const grows = readObjects_(SHEET_NAMES.grows).map(normalizeGrow_).map(function (row) { return String(row.id) === String(id) ? after : row; });
-    assertInventoryValid_(grows, readObjects_(SHEET_NAMES.sales).map(normalizeSale_));
+    const grows = readActiveObjects_(SHEET_NAMES.grows).map(normalizeGrow_).map(function (row) { return String(row.id) === String(id) ? after : row; });
+    assertInventoryValid_(grows, readActiveObjects_(SHEET_NAMES.sales).map(normalizeSale_));
     writeObjectRow_(SHEET_NAMES.grows, located.rowNumber, after);
-    logCorrection_("grow", id, before, after, reason);
+    logCorrection_("grow", id, "edit", before, after, reason);
   });
   return bootstrap_();
 }
@@ -197,6 +201,7 @@ function updateSale_(id, record, reason) {
   withLock_(function () {
     const located = findObjectRow_(SHEET_NAMES.sales, id);
     const before = normalizeSale_(located.object);
+    if (before.deletedAt) throw new Error("That sale has already been deleted.");
     const gross = round_(boxes * unitPrice);
     const growerPayout = round_(gross * 0.70);
     const sellerPayout = round_(gross * 0.15);
@@ -223,10 +228,40 @@ function updateSale_(id, record, reason) {
       growerPaidAt: affectsPayout ? "" : before.growerPaidAt,
       sellerPaidAt: affectsPayout ? "" : before.sellerPaidAt
     });
-    const sales = readObjects_(SHEET_NAMES.sales).map(normalizeSale_).map(function (row) { return String(row.id) === String(id) ? after : row; });
-    assertInventoryValid_(readObjects_(SHEET_NAMES.grows).map(normalizeGrow_), sales);
+    const sales = readActiveObjects_(SHEET_NAMES.sales).map(normalizeSale_).map(function (row) { return String(row.id) === String(id) ? after : row; });
+    assertInventoryValid_(readActiveObjects_(SHEET_NAMES.grows).map(normalizeGrow_), sales);
     writeObjectRow_(SHEET_NAMES.sales, located.rowNumber, after);
-    logCorrection_("sale", id, before, after, reason);
+    logCorrection_("sale", id, "edit", before, after, reason);
+  });
+  return bootstrap_();
+}
+
+function deleteGrow_(id, reason) {
+  reason = clean_(reason, 240);
+  if (!reason) throw new Error("Add a short reason for deleting the grow.");
+  withLock_(function () {
+    const located = findObjectRow_(SHEET_NAMES.grows, id);
+    const before = normalizeGrow_(located.object);
+    if (before.deletedAt) throw new Error("That grow has already been deleted.");
+    const grows = readActiveObjects_(SHEET_NAMES.grows).map(normalizeGrow_).filter(function (row) { return String(row.id) !== String(id); });
+    assertInventoryValid_(grows, readActiveObjects_(SHEET_NAMES.sales).map(normalizeSale_));
+    const after = Object.assign({}, before, { deletedAt: new Date().toISOString(), deleteReason: reason });
+    writeObjectRow_(SHEET_NAMES.grows, located.rowNumber, after);
+    logCorrection_("grow", id, "delete", before, after, reason);
+  });
+  return bootstrap_();
+}
+
+function deleteSale_(id, reason) {
+  reason = clean_(reason, 240);
+  if (!reason) throw new Error("Add a short reason for deleting the sale and payout.");
+  withLock_(function () {
+    const located = findObjectRow_(SHEET_NAMES.sales, id);
+    const before = normalizeSale_(located.object);
+    if (before.deletedAt) throw new Error("That sale has already been deleted.");
+    const after = Object.assign({}, before, { deletedAt: new Date().toISOString(), deleteReason: reason });
+    writeObjectRow_(SHEET_NAMES.sales, located.rowNumber, after);
+    logCorrection_("sale", id, "delete", before, after, reason);
   });
   return bootstrap_();
 }
@@ -240,11 +275,30 @@ function settleSale_(id, role) {
     const idIndex = headers.indexOf("id");
     const growerIndex = headers.indexOf("growerPaidAt");
     const sellerIndex = headers.indexOf("sellerPaidAt");
+    const deletedIndex = headers.indexOf("deletedAt");
     const rowIndex = values.findIndex(function (row, index) { return index > 0 && String(row[idIndex]) === String(id); });
     if (rowIndex < 1) throw new Error("Sale not found.");
+    if (deletedIndex >= 0 && values[rowIndex][deletedIndex]) throw new Error("Deleted sales cannot be settled.");
     const stamp = new Date().toISOString();
     if (role === "grower" || role === "both") sheet.getRange(rowIndex + 1, growerIndex + 1).setValue(stamp);
     if (role === "seller" || role === "both") sheet.getRange(rowIndex + 1, sellerIndex + 1).setValue(stamp);
+  });
+  return bootstrap_();
+}
+
+function reopenPayout_(id, role, reason) {
+  if (!id || ["grower", "seller", "both"].indexOf(role) === -1) throw new Error("Invalid payout correction.");
+  reason = clean_(reason, 240);
+  if (!reason) throw new Error("Add a short reason for reopening the payout.");
+  withLock_(function () {
+    const located = findObjectRow_(SHEET_NAMES.sales, id);
+    const before = normalizeSale_(located.object);
+    if (before.deletedAt) throw new Error("Deleted sales cannot have payouts reopened.");
+    const after = Object.assign({}, before);
+    if (role === "grower" || role === "both") after.growerPaidAt = "";
+    if (role === "seller" || role === "both") after.sellerPaidAt = "";
+    writeObjectRow_(SHEET_NAMES.sales, located.rowNumber, after);
+    logCorrection_("payout", id, "reopen", before, after, reason);
   });
   return bootstrap_();
 }
@@ -321,10 +375,10 @@ function activeWeek_() {
 }
 
 function availableBoxes_(grower, strain) {
-  const grownTrimmings = readObjects_(SHEET_NAMES.grows).filter(function (row) {
+  const grownTrimmings = readActiveObjects_(SHEET_NAMES.grows).filter(function (row) {
     return String(row.grower) === String(grower) && String(row.strain) === String(strain);
   }).reduce(function (sum, row) { return sum + trimmingsForGrow_(row); }, 0);
-  const soldTrimmings = readObjects_(SHEET_NAMES.sales).filter(function (row) {
+  const soldTrimmings = readActiveObjects_(SHEET_NAMES.sales).filter(function (row) {
     return String(row.grower) === String(grower) && String(row.strain) === String(strain);
   }).reduce(function (sum, row) { return sum + number_(row.boxes) * TRIMMINGS_PER_BOX; }, 0);
   return Math.max(0, Math.floor((grownTrimmings - soldTrimmings + 0.0001) / TRIMMINGS_PER_BOX));
@@ -334,7 +388,7 @@ function outstandingSupplies_() {
   const purchased = readObjects_(SHEET_NAMES.supplies).reduce(function (sum, row) {
     return sum + number_(row.total || number_(row.quantity) * number_(row.unitCost));
   }, 0);
-  const recovered = readObjects_(SHEET_NAMES.sales).reduce(function (sum, row) {
+  const recovered = readActiveObjects_(SHEET_NAMES.sales).reduce(function (sum, row) {
     return sum + number_(row.supplyDeduction);
   }, 0);
   return Math.max(0, round_(purchased - recovered));
@@ -344,7 +398,7 @@ function outstandingSuppliesExcludingSale_(saleId) {
   const purchased = readObjects_(SHEET_NAMES.supplies).reduce(function (sum, row) {
     return sum + number_(row.total || number_(row.quantity) * number_(row.unitCost));
   }, 0);
-  const recovered = readObjects_(SHEET_NAMES.sales).reduce(function (sum, row) {
+  const recovered = readActiveObjects_(SHEET_NAMES.sales).reduce(function (sum, row) {
     return String(row.id) === String(saleId) ? sum : sum + number_(row.supplyDeduction);
   }, 0);
   return Math.max(0, round_(purchased - recovered));
@@ -390,13 +444,14 @@ function writeObjectRow_(name, rowNumber, object) {
   })]);
 }
 
-function logCorrection_(recordType, recordId, before, after, reason) {
+function logCorrection_(recordType, recordId, action, before, after, reason) {
   const stamp = new Date().toISOString();
   appendObject_(SHEET_NAMES.corrections, HEADERS.corrections, {
     id: Utilities.getUuid(),
     timestamp: stamp,
     recordType: recordType,
     recordId: recordId,
+    action: action,
     beforeJson: JSON.stringify(before),
     afterJson: JSON.stringify(after),
     reason: reason,
@@ -449,6 +504,10 @@ function readObjects_(name) {
       return object;
     }, {});
   });
+}
+
+function readActiveObjects_(name) {
+  return readObjects_(name).filter(function (row) { return !row.deletedAt; });
 }
 
 function appendObject_(name, headers, object) {

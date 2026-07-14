@@ -33,7 +33,7 @@ if (!html.includes('id="managerPayoutQueue"') || html.includes('id="payoutQueue"
   console.error("Payout settlement is not protected by manager authorization.");
   process.exit(1);
 }
-if (!html.includes('id="correctionForm"') || !html.includes('id="managerGrowRecords"') || !html.includes('id="managerSaleRecords"') || !js.includes('mutate("updateGrow"') || !js.includes('mutate("updateSale"') || !backend.includes('corrections: "Web_Corrections"') || !backend.includes("logCorrection_") || !backend.includes("assertInventoryValid_")) {
+if (!html.includes('id="correctionForm"') || !html.includes('id="managerGrowRecords"') || !html.includes('id="managerSaleRecords"') || !js.includes('mutate("updateGrow"') || !js.includes('mutate("updateSale"') || !js.includes('mutate("deleteGrow"') || !js.includes('mutate("deleteSale"') || !js.includes('mutate("reopenPayout"') || !backend.includes('corrections: "Web_Corrections"') || !backend.includes("deleteGrow_") || !backend.includes("deleteSale_") || !backend.includes("reopenPayout_") || !backend.includes("readActiveObjects_") || !backend.includes("logCorrection_") || !backend.includes("assertInventoryValid_")) {
   console.error("Manager correction controls, audit history, or inventory safeguards are missing.");
   process.exit(1);
 }

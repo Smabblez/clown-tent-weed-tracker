@@ -348,7 +348,11 @@
     const detail = isGrow
       ? quantity(growTrimmings(row), "trimming", "trimmings") + " · " + formatDate(row.timestamp)
       : esc(row.strain) + " · " + money.format(row.gross) + " · " + formatDate(row.timestamp);
-    return '<div class="correction-row"><div><strong>' + label + "</strong><small>" + detail + '</small></div><button class="mini-button" type="button" data-edit-' + type + '="' + esc(row.id) + '">Edit</button></div>';
+    const deleteLabel = isGrow ? "Delete grow" : "Delete sale + payout";
+    const payoutButtons = isGrow ? "" :
+      (row.growerPaidAt ? '<button class="mini-button" type="button" data-reopen-payout="' + esc(row.id) + '" data-role="grower">Undo grower paid</button>' : "") +
+      (row.sellerPaidAt ? '<button class="mini-button" type="button" data-reopen-payout="' + esc(row.id) + '" data-role="seller">Undo seller paid</button>' : "");
+    return '<div class="correction-row"><div><strong>' + label + "</strong><small>" + detail + '</small></div><div class="correction-actions"><button class="mini-button" type="button" data-edit-' + type + '="' + esc(row.id) + '">Edit</button>' + payoutButtons + '<button class="mini-button danger-mini" type="button" data-delete-' + type + '="' + esc(row.id) + '">' + deleteLabel + "</button></div></div>";
   }
   function renderCorrections() {
     const grows = state.grows.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
@@ -357,7 +361,9 @@
     $("#managerSaleRecords").innerHTML = sales.length ? '<div class="correction-list">' + sales.map(function (row) { return correctionRow("sale", row); }).join("") + "</div>" : empty("No sales to correct.");
     const history = state.corrections.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 10);
     $("#managerCorrectionHistory").innerHTML = history.length ? '<div class="history-list">' + history.map(function (row) {
-      return '<div class="history-item"><strong>' + esc(String(row.recordType || "record").toUpperCase()) + " corrected</strong><small>" + esc(row.reason) + " · " + esc(formatDate(row.timestamp)) + "</small></div>";
+      const actionName = String(row.action || "edit").toLowerCase();
+      const action = actionName === "delete" ? "deleted" : actionName === "reopen" ? "reopened" : "corrected";
+      return '<div class="history-item"><strong>' + esc(String(row.recordType || "record").toUpperCase()) + " " + action + "</strong><small>" + esc(row.reason) + " · " + esc(formatDate(row.timestamp)) + "</small></div>";
     }).join("") + "</div>" : empty("No corrections have been made yet.");
   }
   function setCorrectionGroup(group, active) {
@@ -664,6 +670,32 @@
     if (editGrow) openCorrection("grow", editGrow.dataset.editGrow);
     const editSale = event.target.closest("[data-edit-sale]");
     if (editSale) openCorrection("sale", editSale.dataset.editSale);
+    const deleteGrow = event.target.closest("[data-delete-grow]");
+    if (deleteGrow && state.adminCode) {
+      const row = state.grows.find(function (grow) { return String(grow.id) === String(deleteGrow.dataset.deleteGrow); });
+      const reason = prompt("Why should this grow be deleted? The reason will stay in the audit history.");
+      if (reason && confirm("Delete " + (row ? row.grower + "'s " + row.strain + " grow" : "this grow") + "? Its stock will be removed. The deletion will be blocked if recorded sales need that stock.")) {
+        await mutate("deleteGrow", { id: deleteGrow.dataset.deleteGrow, reason: reason }, "Mistaken grow removed. The deletion remains in the audit history.");
+      }
+    }
+    const deleteSale = event.target.closest("[data-delete-sale]");
+    if (deleteSale && state.adminCode) {
+      const row = state.sales.find(function (sale) { return String(sale.id) === String(deleteSale.dataset.deleteSale); });
+      const reason = prompt("Why should this sale and payout be deleted? The reason will stay in the audit history.");
+      if (reason && confirm("Delete " + (row ? row.seller + "'s " + money.format(row.gross) + " sale and its payout" : "this sale and payout") + "? This removes it from totals and returns its boxes to inventory.")) {
+        await mutate("deleteSale", { id: deleteSale.dataset.deleteSale, reason: reason }, "Mistaken sale and payout removed. Inventory and totals were restored.");
+      }
+    }
+    const reopenPayout = event.target.closest("[data-reopen-payout]");
+    if (reopenPayout && state.adminCode) {
+      const row = state.sales.find(function (sale) { return String(sale.id) === String(reopenPayout.dataset.reopenPayout); });
+      const role = reopenPayout.dataset.role;
+      const person = row ? (role === "grower" ? row.grower : row.seller) : role;
+      const reason = prompt("Why should " + person + "'s payout be marked unpaid again? The reason will stay in the audit history.");
+      if (reason && confirm("Reopen " + person + "'s payout? It will return to the amount-due totals and Manager payout queue.")) {
+        await mutate("reopenPayout", { id: reopenPayout.dataset.reopenPayout, role: role, reason: reason }, person + "'s payout was reopened.");
+      }
+    }
     const removeMemberElement = event.target.closest("[data-remove-member]");
     const removeMember = removeMemberElement && removeMemberElement.dataset.removeMember;
     if (removeMember && confirm("Remove " + removeMember + " from future forms? Existing records stay intact.")) await mutate("removeConfig", { kind: "member", name: removeMember }, "Member removed.");

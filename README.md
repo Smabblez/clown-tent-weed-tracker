@@ -39,7 +39,7 @@ Member statements keep three separate totals: earned, paid out, and remaining du
 
 The public site contains no gang or manager password. Both codes are stored only in the Apps Script project's private Script Properties and checked on the server. Payout settlement buttons exist only inside the unlocked Manager page; manager authorization is also enforced by the backend. Everyone with normal tracker access can still view payout balances and history.
 
-Managers can correct existing grow and sale entries from the site. Corrections cannot leave a grower/strain with negative inventory. Any sale correction that changes a person, strain, box count, or price reopens both payout statuses. Every change saves its before/after values and reason in Web_Corrections.
+Managers can correct or delete existing grow and sale entries from the site. They can also reopen an individual grower or seller payout that was marked paid by mistake without deleting the sale. Deleting a sale removes its payout and restores its boxes to inventory. Deleting a grow is blocked when its stock is needed by recorded sales. Records are soft-deleted from live totals rather than erased from the sheet, and every edit, payout reopen, or deletion saves its before/after values and reason in Web_Corrections. Any sale correction that changes a person, strain, box count, or price reopens both payout statuses.
 
 ## Setup and validation
 
