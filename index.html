@@ -144,6 +144,14 @@
         <button class="button primary" type="button" data-action="rollover-week">Close week + start next</button>
       </article>
       <article class="panel"><div class="panel-heading"><div><p class="eyebrow">MANAGER PAYOUT CONTROL</p><h2>Settle payouts</h2><p>Only this unlocked Manager page can mark grower or seller payouts paid.</p></div></div><div id="managerPayoutQueue"></div></article>
+      <article class="panel corrections-panel">
+        <div class="panel-heading"><div><p class="eyebrow">FIX A MISTAKE</p><h2>Correct grows and sales</h2><p>Edit recent records without touching the Google Sheet directly. Every correction is saved in the audit history.</p></div></div>
+        <div class="correction-grid">
+          <section aria-labelledby="manager-grows-title"><h3 id="manager-grows-title">Grow entries</h3><div id="managerGrowRecords"></div></section>
+          <section aria-labelledby="manager-sales-title"><h3 id="manager-sales-title">Sales</h3><div id="managerSaleRecords"></div></section>
+        </div>
+        <div class="correction-history"><h3>Correction history</h3><div id="managerCorrectionHistory"></div></div>
+      </article>
       <div class="settings-grid">
         <article class="panel"><div class="panel-heading"><div><p class="eyebrow">ROSTER</p><h2>Members</h2></div></div><form class="inline-form" id="memberForm"><label><span class="sr-only">New member name</span><input name="name" maxlength="40" placeholder="New member name" required></label><button class="button primary" type="submit">Add</button></form><div class="chip-list" id="memberList"></div></article>
         <article class="panel"><div class="panel-heading"><div><p class="eyebrow">PRODUCT LIST</p><h2>Strains and prices</h2></div></div><form class="inline-form strain-form" id="strainForm"><label><span class="sr-only">New strain</span><input name="name" maxlength="60" placeholder="Strain name" required></label><label><span class="sr-only">Price per box</span><input name="price" type="number" inputmode="decimal" min="0" step="1" placeholder="Price" required></label><button class="button primary" type="submit">Add</button></form><div class="strain-list" id="strainList"></div></article>
@@ -168,14 +176,34 @@
       <div class="access-mark" aria-hidden="true">MGR</div>
       <p class="eyebrow">MANAGER ACCESS</p>
       <h2 id="admin-title">Unlock manager controls.</h2>
-      <p>This unlocks the private payout queue, weekly rollover, roster changes, strains, and pricing.</p>
+      <p>This unlocks record corrections, the private payout queue, weekly rollover, roster changes, strains, and pricing.</p>
       <label><span>Manager password</span><input name="adminCode" type="password" autocomplete="current-password" required></label>
       <button class="button primary full" type="submit">Unlock manager</button>
       <small data-admin-error role="alert"></small>
     </form>
   </dialog>
+  <dialog class="edit-dialog" data-correction-dialog aria-labelledby="correction-title">
+    <form id="correctionForm">
+      <div class="dialog-heading"><div><p class="eyebrow">MANAGER CORRECTION</p><h2 id="correction-title" data-correction-title>Edit record</h2></div><button class="dialog-close" type="button" data-action="close-correction" aria-label="Close correction form">×</button></div>
+      <input type="hidden" name="recordType"><input type="hidden" name="recordId">
+      <div data-correction-grow hidden>
+        <div class="field-grid two"><label><span>Date and time</span><input name="growDate" type="datetime-local" required></label><label><span>Grower</span><select name="growGrower" data-members required></select></label></div>
+        <div class="field-grid two"><label><span>Strain</span><select name="growStrain" data-strains required></select></label><label><span>Trimmings</span><input name="growTrimmings" type="number" min="1" step="1" required></label></div>
+        <div class="field-grid two"><label><span>Reference value per box</span><input name="growPrice" type="number" min="0" step="0.01" required></label><label><span>Notes</span><input name="growNotes" type="text" maxlength="300"></label></div>
+      </div>
+      <div data-correction-sale hidden>
+        <div class="field-grid two"><label><span>Date and time</span><input name="saleDate" type="datetime-local" required></label><label><span>Seller</span><select name="saleSeller" data-members required></select></label></div>
+        <div class="field-grid two"><label><span>Source grower</span><select name="saleGrower" data-members required></select></label><label><span>Strain</span><select name="saleStrain" data-strains required></select></label></div>
+        <div class="field-grid two"><label><span>Boxes sold</span><input name="saleBoxes" type="number" min="1" step="1" required></label><label><span>Sale price per box</span><input name="salePrice" type="number" min="0" step="0.01" required></label></div>
+        <label><span>Reference</span><input name="saleReference" type="text" maxlength="120"></label>
+        <p class="correction-warning">Changing the seller, grower, strain, boxes, or price reopens both payouts so a manager can confirm the corrected amounts.</p>
+      </div>
+      <label><span>Why is this being corrected?</span><input name="reason" type="text" maxlength="240" placeholder="Wrong quantity, wrong member, typo…" required></label>
+      <div class="dialog-actions"><button class="button secondary" type="button" data-action="close-correction">Cancel</button><button class="button primary" type="submit">Save correction</button></div>
+    </form>
+  </dialog>
   <div class="toast" role="status" aria-live="polite" data-toast></div>
   <script src="config.js?v=1"></script>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

@@ -18,3 +18,5 @@ The current inventory contract stores grow intake as whole trimmings and sales a
 Supply purchases are stored in Web_Supplies as buyer, item, quantity, unit cost, and total. Future sales recover the outstanding supply balance only from the gang's 15% share; grower and seller payouts remain 70% and 15% of gross. The backend adds `supplyDeduction` to Web_Sales and carries unrecovered supply costs across weeks.
 
 Payout balances are visible to normal tracker users, but `settleSale` requires the private `ADMIN_CODE` before any payout can be marked paid.
+
+`updateGrow` and `updateSale` also require `ADMIN_CODE`. They validate the complete inventory after the proposed change and write an immutable before/after record with the manager's reason to Web_Corrections. Payout-affecting sale corrections clear both paid timestamps so the corrected amounts must be settled again.

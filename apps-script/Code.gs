@@ -2,6 +2,7 @@ const SHEET_NAMES = Object.freeze({
   grows: "Web_Grows",
   supplies: "Web_Supplies",
   sales: "Web_Sales",
+  corrections: "Web_Corrections",
   config: "Web_Config",
   weeks: "Web_Weeks"
 });
@@ -12,6 +13,7 @@ const HEADERS = Object.freeze({
   grows: ["id", "timestamp", "grower", "strain", "trimmings", "unitPrice", "notes", "createdAt", "weekId"],
   supplies: ["id", "timestamp", "buyer", "item", "quantity", "unitCost", "total", "notes", "createdAt", "weekId"],
   sales: ["id", "timestamp", "seller", "grower", "strain", "boxes", "unitPrice", "gross", "supplyDeduction", "growerPayout", "gangPayout", "sellerPayout", "reference", "growerPaidAt", "sellerPaidAt", "createdAt", "weekId"],
+  corrections: ["id", "timestamp", "recordType", "recordId", "beforeJson", "afterJson", "reason", "createdAt"],
   config: ["kind", "name", "price", "active"],
   weeks: ["id", "label", "startedAt", "closedAt", "status", "createdAt"]
 });
@@ -26,12 +28,14 @@ function doPost(e) {
     assertAccess_(body.accessCode);
     const action = String(body.action || "");
     let result;
-    if (["verifyAdmin", "settleSale", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
+    if (["verifyAdmin", "updateGrow", "updateSale", "settleSale", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
     if (action === "bootstrap") result = bootstrap_();
     else if (action === "verifyAdmin") result = { authorized: true };
     else if (action === "addGrow") result = addGrow_(body.record || {});
     else if (action === "addSupply") result = addSupply_(body.record || {});
     else if (action === "addSale") result = addSale_(body.record || {});
+    else if (action === "updateGrow") result = updateGrow_(body.id, body.record || {}, body.reason);
+    else if (action === "updateSale") result = updateSale_(body.id, body.record || {}, body.reason);
     else if (action === "settleSale") result = settleSale_(body.id, body.role);
     else if (action === "rolloverWeek") result = rolloverWeek_(body.label);
     else if (action === "upsertConfig") result = upsertConfig_(body.kind, body.name, body.price);
@@ -67,6 +71,7 @@ function bootstrap_() {
     grows: readObjects_(SHEET_NAMES.grows).map(normalizeGrow_),
     supplies: readObjects_(SHEET_NAMES.supplies).map(normalizeSupply_),
     sales: readObjects_(SHEET_NAMES.sales).map(normalizeSale_),
+    corrections: readObjects_(SHEET_NAMES.corrections),
     weeks: readObjects_(SHEET_NAMES.weeks),
     activeWeek: activeWeek_()
   };
@@ -152,6 +157,76 @@ function addSale_(record) {
       createdAt: new Date().toISOString(),
       weekId: week.id
     });
+  });
+  return bootstrap_();
+}
+
+function updateGrow_(id, record, reason) {
+  validateRequired_(record, ["timestamp", "grower", "strain", "trimmings"]);
+  reason = clean_(reason, 240);
+  if (!reason) throw new Error("Add a short reason for the grow correction.");
+  const trimmings = number_(record.trimmings);
+  if (!Number.isInteger(trimmings) || trimmings <= 0) throw new Error("Trimmings must be a whole number greater than zero.");
+  withLock_(function () {
+    const located = findObjectRow_(SHEET_NAMES.grows, id);
+    const before = normalizeGrow_(located.object);
+    const after = Object.assign({}, before, {
+      timestamp: safeDate_(record.timestamp),
+      grower: clean_(record.grower, 60),
+      strain: clean_(record.strain, 80),
+      trimmings: trimmings,
+      unitPrice: Math.max(0, number_(record.unitPrice)),
+      notes: clean_(record.notes, 300)
+    });
+    const grows = readObjects_(SHEET_NAMES.grows).map(normalizeGrow_).map(function (row) { return String(row.id) === String(id) ? after : row; });
+    assertInventoryValid_(grows, readObjects_(SHEET_NAMES.sales).map(normalizeSale_));
+    writeObjectRow_(SHEET_NAMES.grows, located.rowNumber, after);
+    logCorrection_("grow", id, before, after, reason);
+  });
+  return bootstrap_();
+}
+
+function updateSale_(id, record, reason) {
+  validateRequired_(record, ["timestamp", "seller", "grower", "strain", "boxes", "unitPrice"]);
+  reason = clean_(reason, 240);
+  if (!reason) throw new Error("Add a short reason for the sale correction.");
+  const boxes = number_(record.boxes);
+  const unitPrice = number_(record.unitPrice);
+  if (!Number.isInteger(boxes) || boxes <= 0) throw new Error("Boxes must be a whole number greater than zero.");
+  if (unitPrice < 0) throw new Error("Price cannot be negative.");
+  withLock_(function () {
+    const located = findObjectRow_(SHEET_NAMES.sales, id);
+    const before = normalizeSale_(located.object);
+    const gross = round_(boxes * unitPrice);
+    const growerPayout = round_(gross * 0.70);
+    const sellerPayout = round_(gross * 0.15);
+    const gangShare = round_(gross - growerPayout - sellerPayout);
+    const suppliesWithoutThisSale = outstandingSuppliesExcludingSale_(id);
+    const supplyDeduction = Math.min(gangShare, suppliesWithoutThisSale);
+    const affectsPayout = String(before.seller) !== clean_(record.seller, 60) ||
+      String(before.grower) !== clean_(record.grower, 60) ||
+      String(before.strain) !== clean_(record.strain, 80) ||
+      number_(before.boxes) !== boxes || number_(before.unitPrice) !== unitPrice;
+    const after = Object.assign({}, before, {
+      timestamp: safeDate_(record.timestamp),
+      seller: clean_(record.seller, 60),
+      grower: clean_(record.grower, 60),
+      strain: clean_(record.strain, 80),
+      boxes: boxes,
+      unitPrice: unitPrice,
+      gross: gross,
+      supplyDeduction: supplyDeduction,
+      growerPayout: growerPayout,
+      gangPayout: round_(gangShare - supplyDeduction),
+      sellerPayout: sellerPayout,
+      reference: clean_(record.reference, 120),
+      growerPaidAt: affectsPayout ? "" : before.growerPaidAt,
+      sellerPaidAt: affectsPayout ? "" : before.sellerPaidAt
+    });
+    const sales = readObjects_(SHEET_NAMES.sales).map(normalizeSale_).map(function (row) { return String(row.id) === String(id) ? after : row; });
+    assertInventoryValid_(readObjects_(SHEET_NAMES.grows).map(normalizeGrow_), sales);
+    writeObjectRow_(SHEET_NAMES.sales, located.rowNumber, after);
+    logCorrection_("sale", id, before, after, reason);
   });
   return bootstrap_();
 }
@@ -263,6 +338,70 @@ function outstandingSupplies_() {
     return sum + number_(row.supplyDeduction);
   }, 0);
   return Math.max(0, round_(purchased - recovered));
+}
+
+function outstandingSuppliesExcludingSale_(saleId) {
+  const purchased = readObjects_(SHEET_NAMES.supplies).reduce(function (sum, row) {
+    return sum + number_(row.total || number_(row.quantity) * number_(row.unitCost));
+  }, 0);
+  const recovered = readObjects_(SHEET_NAMES.sales).reduce(function (sum, row) {
+    return String(row.id) === String(saleId) ? sum : sum + number_(row.supplyDeduction);
+  }, 0);
+  return Math.max(0, round_(purchased - recovered));
+}
+
+function assertInventoryValid_(grows, sales) {
+  const lots = {};
+  grows.forEach(function (row) {
+    const key = String(row.grower) + "|||" + String(row.strain);
+    lots[key] = number_(lots[key]) + trimmingsForGrow_(row);
+  });
+  sales.forEach(function (row) {
+    const key = String(row.grower) + "|||" + String(row.strain);
+    lots[key] = number_(lots[key]) - number_(row.boxes) * TRIMMINGS_PER_BOX;
+  });
+  Object.keys(lots).forEach(function (key) {
+    if (lots[key] < -0.0001) {
+      const parts = key.split("|||");
+      throw new Error("That correction would oversell " + parts[0] + "'s " + parts[1] + " inventory.");
+    }
+  });
+}
+
+function findObjectRow_(name, id) {
+  const sheet = sheet_(name);
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0].map(String);
+  const idIndex = headers.indexOf("id");
+  const rowIndex = values.findIndex(function (row, index) { return index > 0 && String(row[idIndex]) === String(id); });
+  if (rowIndex < 1) throw new Error("Record not found.");
+  const object = headers.reduce(function (result, header, index) {
+    result[header] = values[rowIndex][index] instanceof Date ? values[rowIndex][index].toISOString() : values[rowIndex][index];
+    return result;
+  }, {});
+  return { rowNumber: rowIndex + 1, object: object };
+}
+
+function writeObjectRow_(name, rowNumber, object) {
+  const sheet = sheet_(name);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+  sheet.getRange(rowNumber, 1, 1, headers.length).setValues([headers.map(function (header) {
+    return object[header] === undefined ? "" : object[header];
+  })]);
+}
+
+function logCorrection_(recordType, recordId, before, after, reason) {
+  const stamp = new Date().toISOString();
+  appendObject_(SHEET_NAMES.corrections, HEADERS.corrections, {
+    id: Utilities.getUuid(),
+    timestamp: stamp,
+    recordType: recordType,
+    recordId: recordId,
+    beforeJson: JSON.stringify(before),
+    afterJson: JSON.stringify(after),
+    reason: reason,
+    createdAt: stamp
+  });
 }
 
 function ensureSheets_() {

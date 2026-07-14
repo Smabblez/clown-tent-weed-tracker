@@ -29,8 +29,12 @@ if (!html.includes('name="trimmings"') || !html.includes("data-admin-dialog") ||
   console.error("Trimmings intake or manager authorization controls are missing.");
   process.exit(1);
 }
-if (!html.includes('id="managerPayoutQueue"') || html.includes('id="payoutQueue"') || !js.includes('#managerPayoutQueue') || !js.includes('if (!state.adminCode) return ""') || !backend.includes('["verifyAdmin", "settleSale"')) {
+if (!html.includes('id="managerPayoutQueue"') || html.includes('id="payoutQueue"') || !js.includes('#managerPayoutQueue') || !js.includes('if (!state.adminCode) return ""') || !backend.includes('"settleSale"') || !backend.includes("assertAdmin_(body.adminCode)")) {
   console.error("Payout settlement is not protected by manager authorization.");
+  process.exit(1);
+}
+if (!html.includes('id="correctionForm"') || !html.includes('id="managerGrowRecords"') || !html.includes('id="managerSaleRecords"') || !js.includes('mutate("updateGrow"') || !js.includes('mutate("updateSale"') || !backend.includes('corrections: "Web_Corrections"') || !backend.includes("logCorrection_") || !backend.includes("assertInventoryValid_")) {
+  console.error("Manager correction controls, audit history, or inventory safeguards are missing.");
   process.exit(1);
 }
 if (!html.includes('id="supplyForm"') || !js.includes('mutate("addSupply"') || !backend.includes('supplies: "Web_Supplies"') || !backend.includes("outstandingSupplies_")) {

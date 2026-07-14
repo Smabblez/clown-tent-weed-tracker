@@ -3,7 +3,7 @@
 
   const config = window.TRACKER_CONFIG || {};
   const TRIMMINGS_PER_BOX = 15;
-  const state = { members: [], strains: [], grows: [], supplies: [], sales: [], weeks: [], activeWeek: null, accessCode: sessionStorage.getItem("ct_access") || "", adminCode: sessionStorage.getItem("ct_admin") || "", pendingView: "", busy: false };
+  const state = { members: [], strains: [], grows: [], supplies: [], sales: [], corrections: [], weeks: [], activeWeek: null, accessCode: sessionStorage.getItem("ct_access") || "", adminCode: sessionStorage.getItem("ct_admin") || "", pendingView: "", busy: false };
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const money = new Intl.NumberFormat("en-US", { style: "currency", currency: config.CURRENCY || "USD", minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -31,6 +31,11 @@
   function nowInput() {
     const date = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
     return date.toISOString().slice(0, 16);
+  }
+  function dateInputValue(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return nowInput();
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   }
   function splitSale(boxes, price) {
     const gross = rounded(num(boxes) * num(price));
@@ -73,6 +78,7 @@
     state.grows = data.grows || [];
     state.supplies = data.supplies || [];
     state.sales = data.sales || [];
+    state.corrections = data.corrections || [];
     state.weeks = data.weeks || [];
     state.activeWeek = data.activeWeek || null;
   }
@@ -334,6 +340,70 @@
       return '<div class="strain-item"><span>' + esc(strain.name) + "</span><strong>" + money.format(strain.price) + '</strong><button type="button" aria-label="Remove ' + esc(strain.name) + '" data-remove-strain="' + esc(strain.name) + '">×</button></div>';
     }).join("");
   }
+  function correctionRow(type, row) {
+    const isGrow = type === "grow";
+    const label = isGrow
+      ? esc(row.grower) + " · " + esc(row.strain)
+      : esc(row.seller) + " sold " + quantity(row.boxes, "box", "boxes");
+    const detail = isGrow
+      ? quantity(growTrimmings(row), "trimming", "trimmings") + " · " + formatDate(row.timestamp)
+      : esc(row.strain) + " · " + money.format(row.gross) + " · " + formatDate(row.timestamp);
+    return '<div class="correction-row"><div><strong>' + label + "</strong><small>" + detail + '</small></div><button class="mini-button" type="button" data-edit-' + type + '="' + esc(row.id) + '">Edit</button></div>';
+  }
+  function renderCorrections() {
+    const grows = state.grows.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
+    const sales = state.sales.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
+    $("#managerGrowRecords").innerHTML = grows.length ? '<div class="correction-list">' + grows.map(function (row) { return correctionRow("grow", row); }).join("") + "</div>" : empty("No grows to correct.");
+    $("#managerSaleRecords").innerHTML = sales.length ? '<div class="correction-list">' + sales.map(function (row) { return correctionRow("sale", row); }).join("") + "</div>" : empty("No sales to correct.");
+    const history = state.corrections.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 10);
+    $("#managerCorrectionHistory").innerHTML = history.length ? '<div class="history-list">' + history.map(function (row) {
+      return '<div class="history-item"><strong>' + esc(String(row.recordType || "record").toUpperCase()) + " corrected</strong><small>" + esc(row.reason) + " · " + esc(formatDate(row.timestamp)) + "</small></div>";
+    }).join("") + "</div>" : empty("No corrections have been made yet.");
+  }
+  function setCorrectionGroup(group, active) {
+    group.hidden = !active;
+    $$("input, select, textarea", group).forEach(function (control) { control.disabled = !active; });
+  }
+  function setRecordSelectValue(select, value) {
+    const exists = Array.from(select.options).some(function (option) { return option.value === String(value); });
+    if (!exists && value) select.add(new Option(String(value) + " · archived", String(value)));
+    select.value = value;
+  }
+  function openCorrection(type, id) {
+    if (!state.adminCode) { state.pendingView = "manager"; openAdmin(); return; }
+    const isGrow = type === "grow";
+    const record = (isGrow ? state.grows : state.sales).find(function (row) { return String(row.id) === String(id); });
+    if (!record) { toast("That record could not be found."); return; }
+    const dialog = $("[data-correction-dialog]");
+    const form = $("#correctionForm");
+    form.reset();
+    form.recordType.value = type;
+    form.recordId.value = id;
+    setCorrectionGroup($("[data-correction-grow]"), isGrow);
+    setCorrectionGroup($("[data-correction-sale]"), !isGrow);
+    $("[data-correction-title]").textContent = isGrow ? "Correct grow entry" : "Correct sale";
+    if (isGrow) {
+      form.growDate.value = dateInputValue(record.timestamp);
+      setRecordSelectValue(form.growGrower, record.grower);
+      setRecordSelectValue(form.growStrain, record.strain);
+      form.growTrimmings.value = growTrimmings(record);
+      form.growPrice.value = num(record.unitPrice);
+      form.growNotes.value = record.notes || "";
+    } else {
+      form.saleDate.value = dateInputValue(record.timestamp);
+      setRecordSelectValue(form.saleSeller, record.seller);
+      setRecordSelectValue(form.saleGrower, record.grower);
+      setRecordSelectValue(form.saleStrain, record.strain);
+      form.saleBoxes.value = num(record.boxes);
+      form.salePrice.value = num(record.unitPrice);
+      form.saleReference.value = record.reference || "";
+    }
+    if (!dialog.open) dialog.showModal();
+  }
+  function closeCorrection() {
+    const dialog = $("[data-correction-dialog]");
+    if (dialog.open) dialog.close();
+  }
   function renderInventoryStrains() {
     const grower = $("[data-inventory-growers]").value;
     const rows = inventoryRows().filter(function (row) { return row.grower === grower && row.boxes > 0; });
@@ -377,6 +447,7 @@
     renderPayouts();
     renderLedger();
     renderSettings();
+    renderCorrections();
     renderSelects();
     renderWeeks();
     $$("[data-sheet-link]").forEach(function (link) { link.href = config.SHEET_URL; });
@@ -540,6 +611,24 @@
     const ok = await mutate("addSale", { record: { timestamp: data.date, seller: data.seller, grower: data.grower, strain: data.strain, boxes: num(data.boxes), unitPrice: num(data.price), reference: data.reference } }, "Sale recorded and payout split created.");
     if (ok) { form.reset(); form.date.value = nowInput(); updateSalePreview(); showView("payouts"); }
   });
+  $("#correctionForm").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form));
+    if (!String(data.reason || "").trim()) { toast("Add a short correction reason."); return; }
+    if (data.recordType === "grow") {
+      const trimmings = num(data.growTrimmings);
+      if (!Number.isInteger(trimmings) || trimmings < 1) { toast("Enter a whole number of trimmings."); return; }
+      const ok = await mutate("updateGrow", { id: data.recordId, reason: data.reason, record: { timestamp: data.growDate, grower: data.growGrower, strain: data.growStrain, trimmings: trimmings, unitPrice: num(data.growPrice), notes: data.growNotes } }, "Grow correction saved to the audit history.");
+      if (ok) closeCorrection();
+      return;
+    }
+    const boxes = num(data.saleBoxes);
+    if (!Number.isInteger(boxes) || boxes < 1) { toast("Sales must use whole boxes."); return; }
+    if (!confirm("Save this sale correction? If the people, product, quantity, or price changed, both payouts will reopen for manager confirmation.")) return;
+    const ok = await mutate("updateSale", { id: data.recordId, reason: data.reason, record: { timestamp: data.saleDate, seller: data.saleSeller, grower: data.saleGrower, strain: data.saleStrain, boxes: boxes, unitPrice: num(data.salePrice), reference: data.saleReference } }, "Sale correction saved. Any affected payouts were reopened.");
+    if (ok) closeCorrection();
+  });
   $("#memberForm").addEventListener("submit", async function (event) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -560,7 +649,8 @@
     const action = actionElement && actionElement.dataset.action;
     if (action === "refresh") { try { await loadData(true); } catch (_) {} }
     if (action === "sign-out") { sessionStorage.removeItem("ct_access"); state.accessCode = ""; lockAdmin(); showView("dashboard"); openAccess("Tracker locked."); }
-    if (action === "admin-lock") { lockAdmin("Manager controls locked."); showView("dashboard"); }
+    if (action === "admin-lock") { closeCorrection(); lockAdmin("Manager controls locked."); showView("dashboard"); }
+    if (action === "close-correction") closeCorrection();
     if (action === "rollover-week") {
       const suggested = "Week of " + new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date());
       const label = prompt("Name the new tracking week. Shelf trimmings, supply costs, and unpaid balances will carry forward.", suggested);
@@ -570,6 +660,10 @@
     }
     const settle = event.target.closest("[data-settle]");
     if (settle && state.adminCode) await mutate("settleSale", { id: settle.dataset.settle, role: settle.dataset.role }, "Payout status updated.");
+    const editGrow = event.target.closest("[data-edit-grow]");
+    if (editGrow) openCorrection("grow", editGrow.dataset.editGrow);
+    const editSale = event.target.closest("[data-edit-sale]");
+    if (editSale) openCorrection("sale", editSale.dataset.editSale);
     const removeMemberElement = event.target.closest("[data-remove-member]");
     const removeMember = removeMemberElement && removeMemberElement.dataset.removeMember;
     if (removeMember && confirm("Remove " + removeMember + " from future forms? Existing records stay intact.")) await mutate("removeConfig", { kind: "member", name: removeMember }, "Member removed.");
