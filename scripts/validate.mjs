@@ -29,8 +29,12 @@ if (!html.includes('name="trimmings"') || !html.includes("data-admin-dialog") ||
   console.error("Trimmings intake or manager authorization controls are missing.");
   process.exit(1);
 }
-if (!js.includes("data-unlock-payouts") || !backend.includes('["verifyAdmin", "settleSale"')) {
+if (!html.includes('id="managerPayoutQueue"') || html.includes('id="payoutQueue"') || !js.includes('#managerPayoutQueue') || !js.includes('if (!state.adminCode) return ""') || !backend.includes('["verifyAdmin", "settleSale"')) {
   console.error("Payout settlement is not protected by manager authorization.");
+  process.exit(1);
+}
+if (!html.includes('id="supplyForm"') || !js.includes('mutate("addSupply"') || !backend.includes('supplies: "Web_Supplies"') || !backend.includes("outstandingSupplies_")) {
+  console.error("Supply purchase tracking or gang-share recovery is missing.");
   process.exit(1);
 }
 console.log("Tracker static validation passed.");

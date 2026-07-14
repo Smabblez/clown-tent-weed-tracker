@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0a0d09">
   <meta name="description" content="The Clown Tent weed operation ledger for GTA roleplay grow intake, sales, inventory, and payouts.">
   <title>The Clown Tent — Weed Operations</title>
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <a class="skip-link" href="#app-main">Skip to tracker</a>
@@ -24,6 +24,7 @@
   <nav class="app-nav" aria-label="Tracker sections">
     <button type="button" data-view="dashboard" aria-current="page"><span aria-hidden="true">⌂</span><b>Dashboard</b></button>
     <button type="button" data-view="intake"><span aria-hidden="true">＋</span><b>Grow intake</b></button>
+    <button type="button" data-view="supplies"><span aria-hidden="true">▣</span><b>Supplies</b></button>
     <button type="button" data-view="sales"><span aria-hidden="true">$</span><b>Record sale</b></button>
     <button type="button" data-view="payouts"><span aria-hidden="true">%</span><b>Payouts</b></button>
     <button type="button" data-view="ledger"><span aria-hidden="true">≡</span><b>Ledger</b></button>
@@ -78,8 +79,29 @@
       </div>
     </section>
 
+    <section class="view" data-view-panel="supplies" aria-labelledby="supplies-title" hidden>
+      <div class="page-heading compact"><div><p class="eyebrow">STEP 02 / COSTS IN</p><h1 id="supplies-title">Log supplies.</h1><p>Record seeds or other supplies. Their total is repaid from the gang's 15% share.</p></div></div>
+      <div class="form-layout">
+        <form class="panel tracker-form" id="supplyForm">
+          <div class="field-grid two">
+            <label><span>Bought by</span><select name="buyer" data-members required></select></label>
+            <label><span>Date and time</span><input name="date" type="datetime-local" required></label>
+          </div>
+          <label><span>Supply item</span><input name="item" type="text" maxlength="100" placeholder="Seeds" required></label>
+          <div class="field-grid two">
+            <label><span>Quantity</span><input name="quantity" type="number" inputmode="numeric" min="1" step="1" placeholder="10" required></label>
+            <label><span>Cost per item</span><input name="unitCost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="100" required><small>Example: 10 seeds at $100 each.</small></label>
+          </div>
+          <label><span>Notes <i>optional</i></span><textarea name="notes" rows="3" placeholder="Vendor, run, receipt, or anything worth remembering"></textarea></label>
+          <button class="button primary full" type="submit">Add supply cost</button>
+        </form>
+        <aside class="panel payout-preview" aria-live="polite"><p class="eyebrow">SUPPLY TOTAL</p><h2 data-preview-supply-total>$0</h2><p>Added to the gang expense balance</p><div><span>Current balance</span><strong data-supply-balance>$0</strong></div><div><span>Balance after entry</span><strong data-preview-supply-balance>$0</strong></div><small>Future gang shares repay this balance. At the usual $3,000 sale, the gang's 15% is $450.</small></aside>
+      </div>
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">PURCHASE HISTORY</p><h2>Supply ledger</h2></div></div><div id="supplyTable"></div></article>
+    </section>
+
     <section class="view" data-view-panel="sales" aria-labelledby="sales-title" hidden>
-      <div class="page-heading compact"><div><p class="eyebrow">STEP 02 / PRODUCT OUT</p><h1 id="sales-title">Record a sale.</h1><p>Choose the seller, the grower whose stock moved, and the final sale price.</p></div></div>
+      <div class="page-heading compact"><div><p class="eyebrow">STEP 03 / PRODUCT OUT</p><h1 id="sales-title">Record a sale.</h1><p>Choose the seller, the grower whose stock moved, and the final sale price.</p></div></div>
       <div class="form-layout sale-layout">
         <form class="panel tracker-form" id="saleForm">
           <div class="field-grid two">
@@ -89,7 +111,7 @@
           <label><span>Strain from inventory</span><select name="strain" data-inventory-strains required></select><small data-available-stock>Choose a grower to see stock.</small></label>
           <div class="field-grid two">
             <label><span>Boxes sold</span><input name="boxes" type="number" inputmode="numeric" min="1" step="1" placeholder="0" required><small>Each box uses 15 trimmings from the selected grower.</small></label>
-            <label><span>Sale price per box</span><input name="price" type="number" inputmode="decimal" min="0" step="1" placeholder="0" required></label>
+            <label><span>Sale price per box</span><input name="price" type="number" inputmode="decimal" min="0" step="1" placeholder="3000" required></label>
           </div>
           <div class="field-grid two">
             <label><span>Date and time</span><input name="date" type="datetime-local" required></label>
@@ -97,21 +119,20 @@
           </div>
           <button class="button sale full" type="submit">Record sale and split payout</button>
         </form>
-        <aside class="panel payout-preview" aria-live="polite"><p class="eyebrow">LIVE SPLIT</p><h2 data-preview-gross>$0</h2><p>Gross sale</p><div><span><i class="grower-color"></i>Grower — 70%</span><strong data-preview-grower>$0</strong></div><div><span><i class="gang-color"></i>Gang — 15%</span><strong data-preview-gang>$0</strong></div><div><span><i class="seller-color"></i>Seller — 15%</span><strong data-preview-seller>$0</strong></div><small>The payout is locked to the sale amount when you submit.</small></aside>
+        <aside class="panel payout-preview" aria-live="polite"><p class="eyebrow">LIVE SPLIT</p><h2 data-preview-gross>$0</h2><p>Gross sale</p><div><span><i class="grower-color"></i>Grower — 70%</span><strong data-preview-grower>$0</strong></div><div><span><i class="seller-color"></i>Seller — 15%</span><strong data-preview-seller>$0</strong></div><div><span>Supplies from gang share</span><strong data-preview-supplies>−$0</strong></div><div><span><i class="gang-color"></i>Gang keeps</span><strong data-preview-gang>$0</strong></div><small>Supplies only reduce the gang's 15%. Grower and seller payouts stay whole.</small></aside>
       </div>
     </section>
 
     <section class="view" data-view-panel="payouts" aria-labelledby="payouts-title" hidden>
-      <div class="page-heading compact"><div><p class="eyebrow">STEP 03 / SETTLEMENT</p><h1 id="payouts-title">Payouts.</h1><p>See exactly who is owed, why they are owed, and what has already been settled.</p></div><div class="heading-actions"><button class="button secondary" type="button" data-export="payouts">Export payout CSV</button></div></div>
+      <div class="page-heading compact"><div><p class="eyebrow">STEP 04 / PAYOUTS</p><h1 id="payouts-title">Payouts.</h1><p>Everyone can view what is earned, paid, and still due. Payment controls are only in Manager.</p></div><div class="heading-actions"><button class="button secondary" type="button" data-export="payouts">Export payout CSV</button></div></div>
       <div class="metric-grid payout-metrics" id="payoutMetrics"></div>
       <article class="panel"><div class="panel-heading"><div><p class="eyebrow">BY MEMBER</p><h2>Outstanding totals</h2></div></div><div id="memberPayouts"></div></article>
-      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">PAYMENT QUEUE</p><h2>Unsettled sales</h2><p>Everyone can view balances. Manager access is required to mark them paid.</p></div></div><div id="payoutQueue"></div></article>
     </section>
 
     <section class="view" data-view-panel="ledger" aria-labelledby="ledger-title" hidden>
-      <div class="page-heading compact"><div><p class="eyebrow">AUDIT TRAIL</p><h1 id="ledger-title">The ledger.</h1><p>Every grow and sale in one searchable record.</p></div><div class="heading-actions"><button class="button secondary" type="button" data-export="ledger">Export ledger CSV</button></div></div>
+      <div class="page-heading compact"><div><p class="eyebrow">AUDIT TRAIL</p><h1 id="ledger-title">The ledger.</h1><p>Every grow, supply purchase, and sale in one searchable record.</p></div><div class="heading-actions"><button class="button secondary" type="button" data-export="ledger">Export ledger CSV</button></div></div>
       <article class="panel">
-        <div class="filters"><label><span class="sr-only">Search ledger</span><input type="search" id="ledgerSearch" placeholder="Search member, strain, or reference"></label><label><span class="sr-only">Filter ledger type</span><select id="ledgerType"><option value="all">All activity</option><option value="grow">Grows only</option><option value="sale">Sales only</option></select></label><label><span class="sr-only">Filter tracking week</span><select id="ledgerWeek"><option value="all">All weeks</option></select></label></div>
+        <div class="filters"><label><span class="sr-only">Search ledger</span><input type="search" id="ledgerSearch" placeholder="Search member, item, strain, or reference"></label><label><span class="sr-only">Filter ledger type</span><select id="ledgerType"><option value="all">All activity</option><option value="grow">Grows only</option><option value="supply">Supplies only</option><option value="sale">Sales only</option></select></label><label><span class="sr-only">Filter tracking week</span><select id="ledgerWeek"><option value="all">All weeks</option></select></label></div>
         <div id="ledgerTable"></div>
       </article>
     </section>
@@ -119,9 +140,10 @@
     <section class="view" data-view-panel="manager" aria-labelledby="manager-title" hidden>
       <div class="page-heading compact"><div><p class="eyebrow">ADMIN CONTROL ROOM</p><h1 id="manager-title">Manager.</h1><p>Close tracking weeks and manage the people, strains, and prices behind the ledger.</p></div><div class="heading-actions"><button class="button danger" type="button" data-action="admin-lock">Lock manager</button></div></div>
       <article class="panel manager-week-panel">
-        <div><p class="eyebrow">WEEKLY ROLLOVER</p><h2 data-manager-week>Current week</h2><p>Closing the week starts a fresh reporting period. Shelf trimmings, sale-ready boxes, unpaid payouts, and history all carry forward.</p></div>
+        <div><p class="eyebrow">WEEKLY ROLLOVER</p><h2 data-manager-week>Current week</h2><p>Closing the week starts a fresh reporting period. Shelf trimmings, supply balance, unpaid payouts, and history all carry forward.</p></div>
         <button class="button primary" type="button" data-action="rollover-week">Close week + start next</button>
       </article>
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">MANAGER PAYOUT CONTROL</p><h2>Settle payouts</h2><p>Only this unlocked Manager page can mark grower or seller payouts paid.</p></div></div><div id="managerPayoutQueue"></div></article>
       <div class="settings-grid">
         <article class="panel"><div class="panel-heading"><div><p class="eyebrow">ROSTER</p><h2>Members</h2></div></div><form class="inline-form" id="memberForm"><label><span class="sr-only">New member name</span><input name="name" maxlength="40" placeholder="New member name" required></label><button class="button primary" type="submit">Add</button></form><div class="chip-list" id="memberList"></div></article>
         <article class="panel"><div class="panel-heading"><div><p class="eyebrow">PRODUCT LIST</p><h2>Strains and prices</h2></div></div><form class="inline-form strain-form" id="strainForm"><label><span class="sr-only">New strain</span><input name="name" maxlength="60" placeholder="Strain name" required></label><label><span class="sr-only">Price per box</span><input name="price" type="number" inputmode="decimal" min="0" step="1" placeholder="Price" required></label><button class="button primary" type="submit">Add</button></form><div class="strain-list" id="strainList"></div></article>
@@ -146,7 +168,7 @@
       <div class="access-mark" aria-hidden="true">MGR</div>
       <p class="eyebrow">MANAGER ACCESS</p>
       <h2 id="admin-title">Unlock manager controls.</h2>
-      <p>This protects payout buttons, weekly rollover, roster changes, strains, and pricing.</p>
+      <p>This unlocks the private payout queue, weekly rollover, roster changes, strains, and pricing.</p>
       <label><span>Manager password</span><input name="adminCode" type="password" autocomplete="current-password" required></label>
       <button class="button primary full" type="submit">Unlock manager</button>
       <small data-admin-error role="alert"></small>
@@ -154,6 +176,6 @@
   </dialog>
   <div class="toast" role="status" aria-live="polite" data-toast></div>
   <script src="config.js?v=1"></script>
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

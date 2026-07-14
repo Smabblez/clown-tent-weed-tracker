@@ -3,7 +3,7 @@
 
   const config = window.TRACKER_CONFIG || {};
   const TRIMMINGS_PER_BOX = 15;
-  const state = { members: [], strains: [], grows: [], sales: [], weeks: [], activeWeek: null, accessCode: sessionStorage.getItem("ct_access") || "", adminCode: sessionStorage.getItem("ct_admin") || "", pendingView: "", busy: false };
+  const state = { members: [], strains: [], grows: [], supplies: [], sales: [], weeks: [], activeWeek: null, accessCode: sessionStorage.getItem("ct_access") || "", adminCode: sessionStorage.getItem("ct_admin") || "", pendingView: "", busy: false };
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const money = new Intl.NumberFormat("en-US", { style: "currency", currency: config.CURRENCY || "USD", minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -35,8 +35,10 @@
   function splitSale(boxes, price) {
     const gross = rounded(num(boxes) * num(price));
     const grower = rounded(gross * 0.7);
-    const gang = rounded(gross * 0.15);
-    return { gross: gross, grower: grower, gang: gang, seller: rounded(gross - grower - gang) };
+    const seller = rounded(gross * 0.15);
+    const gangShare = rounded(gross - grower - seller);
+    const supplyDeduction = Math.min(gangShare, supplySummary().outstanding);
+    return { gross: gross, grower: grower, seller: seller, supplyDeduction: supplyDeduction, gang: rounded(gangShare - supplyDeduction) };
   }
   function toast(message) {
     const element = $("[data-toast]");
@@ -69,6 +71,7 @@
     state.members = data.members || [];
     state.strains = data.strains || [];
     state.grows = data.grows || [];
+    state.supplies = data.supplies || [];
     state.sales = data.sales || [];
     state.weeks = data.weeks || [];
     state.activeWeek = data.activeWeek || null;
@@ -166,6 +169,11 @@
     }).sort(function (a, b) { return b.total - a.total; });
     return { people: list, gangTotal: gangTotal };
   }
+  function supplySummary() {
+    const purchased = state.supplies.reduce(function (sum, row) { return sum + num(row.total || num(row.quantity) * num(row.unitCost)); }, 0);
+    const recovered = state.sales.reduce(function (sum, row) { return sum + num(row.supplyDeduction); }, 0);
+    return { purchased: rounded(purchased), recovered: rounded(recovered), outstanding: Math.max(0, rounded(purchased - recovered)) };
+  }
   function memberStatements() {
     const people = new Map();
     state.sales.forEach(function (sale) {
@@ -182,6 +190,7 @@
   }
   function ledgerRows() {
     return state.grows.map(function (row) { return Object.assign({ type: "grow" }, row); })
+      .concat(state.supplies.map(function (row) { return Object.assign({ type: "supply" }, row); }))
       .concat(state.sales.map(function (row) { return Object.assign({ type: "sale" }, row); }))
       .sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
   }
@@ -203,25 +212,30 @@
   }
   function activityHtml(row) {
     const grow = row.type === "grow";
-    const amount = grow ? growTrimmings(row) : num(row.boxes);
+    const supply = row.type === "supply";
+    const amount = grow ? growTrimmings(row) : supply ? num(row.quantity) : num(row.boxes);
     const text = grow
       ? esc(row.grower) + " logged " + quantity(amount, "trimming", "trimmings") + " of " + esc(row.strain)
-      : esc(row.seller) + " sold " + quantity(amount, "box", "boxes") + " of " + esc(row.strain);
-    return '<div class="activity ' + row.type + '"><span class="activity-badge">' + (grow ? "+" : "$") + "</span><div><strong>" + text + "</strong><small>" + esc(formatDate(row.timestamp)) + "</small></div><b>" + (grow ? "+" + number.format(amount) : money.format(row.gross)) + "</b></div>";
+      : supply
+        ? esc(row.buyer) + " bought " + quantity(amount, "item", "items") + " of " + esc(row.item)
+        : esc(row.seller) + " sold " + quantity(amount, "box", "boxes") + " of " + esc(row.strain);
+    const badge = grow ? "+" : supply ? "−" : "$";
+    const value = grow ? "+" + number.format(amount) : supply ? "−" + money.format(row.total) : money.format(row.gross);
+    return '<div class="activity ' + row.type + '"><span class="activity-badge">' + badge + "</span><div><strong>" + text + "</strong><small>" + esc(formatDate(row.timestamp)) + "</small></div><b>" + value + "</b></div>";
   }
   function renderDashboard() {
     const inventory = inventoryRows();
     const payouts = payoutSummary();
+    const supplies = supplySummary();
     const currentSales = state.sales.filter(function (sale) { return !state.activeWeek || sale.weekId === state.activeWeek.id; });
-    const currentGrows = state.grows.filter(function (grow) { return !state.activeWeek || grow.weekId === state.activeWeek.id; });
+    const currentSupplies = state.supplies.filter(function (supply) { return !state.activeWeek || supply.weekId === state.activeWeek.id; });
     const stockTrimmings = inventory.reduce(function (sum, row) { return sum + row.trimmings; }, 0);
     const stockBoxes = inventory.reduce(function (sum, row) { return sum + row.boxes; }, 0);
     const gross = currentSales.reduce(function (sum, sale) { return sum + num(sale.gross); }, 0);
-    const grown = currentGrows.reduce(function (sum, grow) { return sum + growTrimmings(grow); }, 0);
     const owed = payouts.people.reduce(function (sum, person) { return sum + person.total; }, 0);
     $("#dashboardMetrics").innerHTML = [
       metric("Trimmings on shelves", number.format(stockTrimmings), quantity(stockBoxes, "sale-ready box", "sale-ready boxes")),
-      metric("Grown this week", quantity(grown, "trimming", "trimmings"), currentGrows.length + " grow entries"),
+      metric("Supply balance", money.format(supplies.outstanding), currentSupplies.length + " purchases this week"),
       metric("Sales this week", money.format(gross), currentSales.length + " recorded sales"),
       metric("Member payouts due", money.format(owed), payouts.people.length + " members owed"),
     ].join("");
@@ -236,12 +250,21 @@
       return '<div class="payout-row"><span>' + esc(person.name) + "</span><strong>" + money.format(person.total) + '</strong><div class="progress"><i style="width:' + Math.max(4, person.total / max * 100) + '%"></i></div></div>';
     }).join("") : empty("No open member payouts.");
     const recent = ledgerRows().slice(0, 7);
-    $("#recentActivity").innerHTML = recent.length ? recent.map(activityHtml).join("") : empty("Activity will appear here after the first grow or sale.");
+    $("#recentActivity").innerHTML = recent.length ? recent.map(activityHtml).join("") : empty("Activity will appear here after the first grow, supply purchase, or sale.");
+  }
+  function renderSupplies() {
+    const summary = supplySummary();
+    $("[data-supply-balance]").textContent = money.format(summary.outstanding);
+    $("#supplyTable").innerHTML = state.supplies.length ? table(
+      ["When", "Bought by", "Item", "Quantity", "Per item", "Total"],
+      state.supplies.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).map(function (row) {
+        return [esc(formatDate(row.timestamp)), esc(row.buyer), esc(row.item), { value: number.format(row.quantity), num: true }, { value: money.format(row.unitCost), num: true }, { value: money.format(row.total), num: true }];
+      })
+    ) : empty("No supply purchases yet.");
+    updateSupplyPreview();
   }
   function queueActions(sale) {
-    if (!state.adminCode) {
-      return '<div class="queue-actions"><button class="mini-button" type="button" data-unlock-payouts>Manager unlock</button></div>';
-    }
+    if (!state.adminCode) return "";
     const buttons = [];
     if (!sale.growerPaidAt) buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="grower">Pay grower</button>');
     if (!sale.sellerPaidAt) buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="seller">Pay seller</button>');
@@ -257,7 +280,7 @@
       metric("Growers owed", money.format(growerOwed), "70% shares not marked paid"),
       metric("Sellers owed", money.format(sellerOwed), "15% shares not marked paid"),
       metric("Total member queue", money.format(growerOwed + sellerOwed), summary.people.length + " members"),
-      metric("Gang share", money.format(summary.gangTotal), "15% retained by the gang")
+      metric("Gang keeps", money.format(summary.gangTotal), "after supply costs")
     ].join("");
     $("#memberPayouts").innerHTML = statements.length ? table(
       ["Member", "Total earned", "Paid out", "Remaining due"],
@@ -266,7 +289,7 @@
       })
     ) : empty("Everyone is settled.");
     const unsettled = state.sales.filter(function (sale) { return !sale.growerPaidAt || !sale.sellerPaidAt; }).sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
-    $("#payoutQueue").innerHTML = unsettled.length ? table(
+    $("#managerPayoutQueue").innerHTML = unsettled.length ? table(
       ["Sale", "Grower share", "Seller share", "Settle"],
       unsettled.map(function (sale) {
         return [
@@ -283,21 +306,22 @@
     const type = $("#ledgerType").value;
     const week = $("#ledgerWeek").value;
     const rows = ledgerRows().filter(function (row) {
-      const text = [row.grower, row.seller, row.strain, row.reference, row.notes].join(" ").toLowerCase();
+      const text = [row.grower, row.seller, row.buyer, row.strain, row.item, row.reference, row.notes].join(" ").toLowerCase();
       return (type === "all" || row.type === type) && (week === "all" || row.weekId === week) && (!query || text.includes(query));
     });
     $("#ledgerTable").innerHTML = rows.length ? table(
-      ["When", "Type", "Member / source", "Strain", "Quantity", "Reference / gross"],
+      ["When", "Type", "Member / source", "Item / strain", "Quantity", "Value"],
       rows.map(function (row) {
         const grow = row.type === "grow";
+        const supply = row.type === "supply";
         const trimmings = growTrimmings(row);
         return [
           esc(formatDate(row.timestamp)),
-          grow ? '<span class="paid">Grow</span>' : "Sale",
-          grow ? esc(row.grower) : "<strong>" + esc(row.seller) + "</strong><small>Stock: " + esc(row.grower) + "</small>",
-          esc(row.strain),
-          { value: grow ? quantity(trimmings, "trimming", "trimmings") : quantity(row.boxes, "box", "boxes"), num: true },
-          { value: grow ? money.format(trimmings / TRIMMINGS_PER_BOX * num(row.unitPrice)) : money.format(row.gross), num: true }
+          grow ? '<span class="paid">Grow</span>' : supply ? '<span class="supply-label">Supply</span>' : "Sale",
+          grow ? esc(row.grower) : supply ? esc(row.buyer) : "<strong>" + esc(row.seller) + "</strong><small>Stock: " + esc(row.grower) + "</small>",
+          esc(supply ? row.item : row.strain),
+          { value: grow ? quantity(trimmings, "trimming", "trimmings") : supply ? quantity(row.quantity, "item", "items") : quantity(row.boxes, "box", "boxes"), num: true },
+          { value: supply ? "−" + money.format(row.total) : grow ? money.format(trimmings / TRIMMINGS_PER_BOX * num(row.unitPrice)) : money.format(row.gross), num: true }
         ];
       })
     ) : empty("No ledger records match that filter.");
@@ -349,6 +373,7 @@
   }
   function renderAll() {
     renderDashboard();
+    renderSupplies();
     renderPayouts();
     renderLedger();
     renderSettings();
@@ -360,7 +385,7 @@
     $("[data-active-week]").textContent = state.activeWeek ? state.activeWeek.label : "No active week";
     $("[data-manager-week]").textContent = state.activeWeek ? state.activeWeek.label : "No active week";
     const currentSales = state.sales.filter(function (sale) { return state.activeWeek && sale.weekId === state.activeWeek.id; });
-    $("[data-week-summary]").textContent = quantity(currentSales.length, "sale", "sales") + " this week · shelf stock and unpaid balances roll forward";
+    $("[data-week-summary]").textContent = quantity(currentSales.length, "sale", "sales") + " this week · stock, supply costs, and balances roll forward";
     const select = $("#ledgerWeek");
     const current = select.value;
     select.innerHTML = '<option value="all">All weeks</option>' + state.weeks.slice().reverse().map(function (week) {
@@ -415,8 +440,16 @@
     const split = splitSale(form.boxes.value, form.price.value);
     $("[data-preview-gross]").textContent = money.format(split.gross);
     $("[data-preview-grower]").textContent = money.format(split.grower);
-    $("[data-preview-gang]").textContent = money.format(split.gang);
     $("[data-preview-seller]").textContent = money.format(split.seller);
+    $("[data-preview-supplies]").textContent = "−" + money.format(split.supplyDeduction);
+    $("[data-preview-gang]").textContent = money.format(split.gang);
+  }
+  function updateSupplyPreview() {
+    const form = $("#supplyForm");
+    const total = rounded(num(form.quantity.value) * num(form.unitCost.value));
+    const outstanding = supplySummary().outstanding;
+    $("[data-preview-supply-total]").textContent = money.format(total);
+    $("[data-preview-supply-balance]").textContent = money.format(outstanding + total);
   }
   function download(filename, blob) {
     const link = document.createElement("a");
@@ -434,7 +467,7 @@
   function exportData(type) {
     const stamp = new Date().toISOString().slice(0, 10);
     if (type === "backup") {
-      const audit = { exportedAt: new Date().toISOString(), members: state.members, strains: state.strains, grows: state.grows, sales: state.sales };
+      const audit = { exportedAt: new Date().toISOString(), members: state.members, strains: state.strains, grows: state.grows, supplies: state.supplies, sales: state.sales };
       download("clown-tent-audit-" + stamp + ".json", new Blob([JSON.stringify(audit, null, 2)], { type: "application/json" }));
       return;
     }
@@ -442,8 +475,8 @@
       csvDownload("clown-tent-payouts-" + stamp + ".csv", [["Member", "Grower due", "Seller due", "Total due"]].concat(payoutSummary().people.map(function (row) { return [row.name, row.grower, row.seller, row.total]; })));
       return;
     }
-    csvDownload("clown-tent-ledger-" + stamp + ".csv", [["Date", "Type", "Grower", "Seller", "Strain", "Trimmings (grow)", "Boxes (sale)", "Price per box", "Gross", "Grower payout", "Gang payout", "Seller payout", "Reference / notes"]].concat(ledgerRows().map(function (row) {
-      return [row.timestamp, row.type, row.grower, row.seller || "", row.strain, row.type === "grow" ? growTrimmings(row) : "", row.type === "sale" ? row.boxes : "", row.unitPrice, row.gross || "", row.growerPayout || "", row.gangPayout || "", row.sellerPayout || "", row.reference || row.notes || ""];
+    csvDownload("clown-tent-ledger-" + stamp + ".csv", [["Date", "Type", "Grower", "Seller", "Supply buyer", "Item / strain", "Trimmings (grow)", "Supply quantity", "Boxes (sale)", "Unit price / cost", "Gross", "Supplies from gang share", "Grower payout", "Gang keeps", "Seller payout", "Reference / notes"]].concat(ledgerRows().map(function (row) {
+      return [row.timestamp, row.type, row.grower || "", row.seller || "", row.buyer || "", row.item || row.strain || "", row.type === "grow" ? growTrimmings(row) : "", row.type === "supply" ? row.quantity : "", row.type === "sale" ? row.boxes : "", row.type === "supply" ? row.unitCost : row.unitPrice, row.gross || "", row.supplyDeduction || "", row.growerPayout || "", row.gangPayout || "", row.sellerPayout || "", row.reference || row.notes || ""];
     })));
   }
 
@@ -485,6 +518,17 @@
     const ok = await mutate("addGrow", { record: { timestamp: data.date, grower: data.grower, strain: data.strain, trimmings: trimmings, unitPrice: num(data.price), notes: data.notes } }, "Grow trimmings added to shared inventory.");
     if (ok) { form.reset(); form.date.value = nowInput(); }
   });
+  $("#supplyForm").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form));
+    const quantity = num(data.quantity);
+    const unitCost = num(data.unitCost);
+    if (!Number.isInteger(quantity) || quantity < 1) { toast("Enter a whole supply quantity."); return; }
+    if (unitCost < 0) { toast("Supply cost cannot be negative."); return; }
+    const ok = await mutate("addSupply", { record: { timestamp: data.date, buyer: data.buyer, item: data.item, quantity: quantity, unitCost: unitCost, notes: data.notes } }, "Supply cost added to the gang balance.");
+    if (ok) { form.reset(); form.date.value = nowInput(); updateSupplyPreview(); }
+  });
   $("#saleForm").addEventListener("submit", async function (event) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -519,18 +563,13 @@
     if (action === "admin-lock") { lockAdmin("Manager controls locked."); showView("dashboard"); }
     if (action === "rollover-week") {
       const suggested = "Week of " + new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date());
-      const label = prompt("Name the new tracking week. Shelf trimmings, sale-ready boxes, and unpaid balances will carry forward.", suggested);
+      const label = prompt("Name the new tracking week. Shelf trimmings, supply costs, and unpaid balances will carry forward.", suggested);
       if (label && confirm("Close " + (state.activeWeek ? state.activeWeek.label : "the current week") + " and start " + label + "? No inventory or payout history will be deleted.")) {
-        await mutate("rolloverWeek", { label: label }, "New tracking week started. Stock and balances carried forward.");
+        await mutate("rolloverWeek", { label: label }, "New tracking week started. Stock, supply costs, and balances carried forward.");
       }
     }
     const settle = event.target.closest("[data-settle]");
     if (settle && state.adminCode) await mutate("settleSale", { id: settle.dataset.settle, role: settle.dataset.role }, "Payout status updated.");
-    const unlockPayouts = event.target.closest("[data-unlock-payouts]");
-    if (unlockPayouts) {
-      state.pendingView = "payouts";
-      openAdmin("Manager access is required to mark payouts paid.");
-    }
     const removeMemberElement = event.target.closest("[data-remove-member]");
     const removeMember = removeMemberElement && removeMemberElement.dataset.removeMember;
     if (removeMember && confirm("Remove " + removeMember + " from future forms? Existing records stay intact.")) await mutate("removeConfig", { kind: "member", name: removeMember }, "Member removed.");
@@ -551,11 +590,13 @@
     $("#growForm").price.value = event.target.selectedOptions[0] && event.target.selectedOptions[0].dataset.price || "";
   });
   $("#saleForm").addEventListener("input", updateSalePreview);
+  $("#supplyForm").addEventListener("input", updateSupplyPreview);
   $("#ledgerSearch").addEventListener("input", renderLedger);
   $("#ledgerType").addEventListener("change", renderLedger);
   $("#ledgerWeek").addEventListener("change", renderLedger);
 
   $("#growForm").date.value = nowInput();
+  $("#supplyForm").date.value = nowInput();
   $("#saleForm").date.value = nowInput();
   const initialView = location.hash.slice(1);
   const requestedView = $('[data-view="' + initialView + '"]') ? initialView : "dashboard";

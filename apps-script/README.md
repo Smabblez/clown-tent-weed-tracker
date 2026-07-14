@@ -15,4 +15,6 @@ When Code.gs changes, create a new deployment version and keep the same web app 
 
 The current inventory contract stores grow intake as whole trimmings and sales as whole boxes. The backend converts 15 trimmings into 1 sale-ready box and automatically adds the `trimmings` header to an existing Web_Grows tab while preserving legacy `boxes` rows.
 
+Supply purchases are stored in Web_Supplies as buyer, item, quantity, unit cost, and total. Future sales recover the outstanding supply balance only from the gang's 15% share; grower and seller payouts remain 70% and 15% of gross. The backend adds `supplyDeduction` to Web_Sales and carries unrecovered supply costs across weeks.
+
 Payout balances are visible to normal tracker users, but `settleSale` requires the private `ADMIN_CODE` before any payout can be marked paid.

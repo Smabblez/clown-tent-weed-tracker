@@ -1,5 +1,6 @@
 const SHEET_NAMES = Object.freeze({
   grows: "Web_Grows",
+  supplies: "Web_Supplies",
   sales: "Web_Sales",
   config: "Web_Config",
   weeks: "Web_Weeks"
@@ -9,7 +10,8 @@ const TRIMMINGS_PER_BOX = 15;
 
 const HEADERS = Object.freeze({
   grows: ["id", "timestamp", "grower", "strain", "trimmings", "unitPrice", "notes", "createdAt", "weekId"],
-  sales: ["id", "timestamp", "seller", "grower", "strain", "boxes", "unitPrice", "gross", "growerPayout", "gangPayout", "sellerPayout", "reference", "growerPaidAt", "sellerPaidAt", "createdAt", "weekId"],
+  supplies: ["id", "timestamp", "buyer", "item", "quantity", "unitCost", "total", "notes", "createdAt", "weekId"],
+  sales: ["id", "timestamp", "seller", "grower", "strain", "boxes", "unitPrice", "gross", "supplyDeduction", "growerPayout", "gangPayout", "sellerPayout", "reference", "growerPaidAt", "sellerPaidAt", "createdAt", "weekId"],
   config: ["kind", "name", "price", "active"],
   weeks: ["id", "label", "startedAt", "closedAt", "status", "createdAt"]
 });
@@ -28,6 +30,7 @@ function doPost(e) {
     if (action === "bootstrap") result = bootstrap_();
     else if (action === "verifyAdmin") result = { authorized: true };
     else if (action === "addGrow") result = addGrow_(body.record || {});
+    else if (action === "addSupply") result = addSupply_(body.record || {});
     else if (action === "addSale") result = addSale_(body.record || {});
     else if (action === "settleSale") result = settleSale_(body.id, body.role);
     else if (action === "rolloverWeek") result = rolloverWeek_(body.label);
@@ -62,6 +65,7 @@ function bootstrap_() {
     members: configs.filter(function (row) { return row.kind === "member" && truthy_(row.active); }).map(function (row) { return row.name; }).sort(),
     strains: configs.filter(function (row) { return row.kind === "strain" && truthy_(row.active); }).map(function (row) { return { name: row.name, price: number_(row.price) }; }).sort(function (a, b) { return a.name.localeCompare(b.name); }),
     grows: readObjects_(SHEET_NAMES.grows).map(normalizeGrow_),
+    supplies: readObjects_(SHEET_NAMES.supplies).map(normalizeSupply_),
     sales: readObjects_(SHEET_NAMES.sales).map(normalizeSale_),
     weeks: readObjects_(SHEET_NAMES.weeks),
     activeWeek: activeWeek_()
@@ -89,6 +93,30 @@ function addGrow_(record) {
   return bootstrap_();
 }
 
+function addSupply_(record) {
+  validateRequired_(record, ["timestamp", "buyer", "item", "quantity", "unitCost"]);
+  const quantity = number_(record.quantity);
+  const unitCost = number_(record.unitCost);
+  if (!Number.isInteger(quantity) || quantity <= 0) throw new Error("Supply quantity must be a whole number greater than zero.");
+  if (unitCost < 0) throw new Error("Supply cost cannot be negative.");
+  const week = activeWeek_();
+  withLock_(function () {
+    appendObject_(SHEET_NAMES.supplies, HEADERS.supplies, {
+      id: Utilities.getUuid(),
+      timestamp: safeDate_(record.timestamp),
+      buyer: clean_(record.buyer, 60),
+      item: clean_(record.item, 100),
+      quantity: quantity,
+      unitCost: unitCost,
+      total: round_(quantity * unitCost),
+      notes: clean_(record.notes, 300),
+      createdAt: new Date().toISOString(),
+      weekId: week.id
+    });
+  });
+  return bootstrap_();
+}
+
 function addSale_(record) {
   validateRequired_(record, ["timestamp", "seller", "grower", "strain", "boxes", "unitPrice"]);
   const boxes = number_(record.boxes);
@@ -101,8 +129,10 @@ function addSale_(record) {
     if (boxes > available + 0.0001) throw new Error("Only " + available + " boxes remain for that grower and strain.");
     const gross = round_(boxes * unitPrice);
     const growerPayout = round_(gross * 0.70);
-    const gangPayout = round_(gross * 0.15);
-    const sellerPayout = round_(gross - growerPayout - gangPayout);
+    const sellerPayout = round_(gross * 0.15);
+    const gangShare = round_(gross - growerPayout - sellerPayout);
+    const supplyDeduction = Math.min(gangShare, outstandingSupplies_());
+    const gangPayout = round_(gangShare - supplyDeduction);
     appendObject_(SHEET_NAMES.sales, HEADERS.sales, {
       id: Utilities.getUuid(),
       timestamp: safeDate_(record.timestamp),
@@ -112,6 +142,7 @@ function addSale_(record) {
       boxes: boxes,
       unitPrice: unitPrice,
       gross: gross,
+      supplyDeduction: supplyDeduction,
       growerPayout: growerPayout,
       gangPayout: gangPayout,
       sellerPayout: sellerPayout,
@@ -224,6 +255,16 @@ function availableBoxes_(grower, strain) {
   return Math.max(0, Math.floor((grownTrimmings - soldTrimmings + 0.0001) / TRIMMINGS_PER_BOX));
 }
 
+function outstandingSupplies_() {
+  const purchased = readObjects_(SHEET_NAMES.supplies).reduce(function (sum, row) {
+    return sum + number_(row.total || number_(row.quantity) * number_(row.unitCost));
+  }, 0);
+  const recovered = readObjects_(SHEET_NAMES.sales).reduce(function (sum, row) {
+    return sum + number_(row.supplyDeduction);
+  }, 0);
+  return Math.max(0, round_(purchased - recovered));
+}
+
 function ensureSheets_() {
   const book = SpreadsheetApp.getActiveSpreadsheet();
   Object.keys(SHEET_NAMES).forEach(function (key) {
@@ -284,8 +325,14 @@ function normalizeGrow_(row) {
   row.unitPrice = number_(row.unitPrice);
   return row;
 }
+function normalizeSupply_(row) {
+  row.quantity = number_(row.quantity);
+  row.unitCost = number_(row.unitCost);
+  row.total = number_(row.total) || round_(row.quantity * row.unitCost);
+  return row;
+}
 function normalizeSale_(row) {
-  ["boxes", "unitPrice", "gross", "growerPayout", "gangPayout", "sellerPayout"].forEach(function (key) { row[key] = number_(row[key]); });
+  ["boxes", "unitPrice", "gross", "supplyDeduction", "growerPayout", "gangPayout", "sellerPayout"].forEach(function (key) { row[key] = number_(row[key]); });
   return row;
 }
 function sheet_(name) {
