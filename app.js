@@ -271,11 +271,43 @@
   }
   function queueActions(sale) {
     if (!state.adminCode) return "";
+    const checks = [];
     const buttons = [];
-    if (!sale.growerPaidAt) buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="grower">Pay grower</button>');
-    if (!sale.sellerPaidAt) buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="seller">Pay seller</button>');
+    if (!sale.growerPaidAt) {
+      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="grower" aria-label="Select grower payout for ' + esc(sale.grower) + '"><span>Grower · ' + money.format(sale.growerPayout) + '</span></label>');
+      buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="grower">Pay now</button>');
+    }
+    if (!sale.sellerPaidAt) {
+      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="seller" aria-label="Select seller payout for ' + esc(sale.seller) + '"><span>Seller · ' + money.format(sale.sellerPayout) + '</span></label>');
+      buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="seller">Pay now</button>');
+    }
     if (!sale.growerPaidAt && !sale.sellerPaidAt) buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="both">Pay both</button>');
-    return '<div class="queue-actions">' + buttons.join("") + "</div>";
+    return '<div class="queue-actions"><div class="payout-options">' + checks.join("") + '</div><div class="payout-quick-actions">' + buttons.join("") + "</div></div>";
+  }
+  function selectedPayouts() {
+    return $$('[data-payout-select]:checked').map(function (input) {
+      return { id: input.dataset.id, role: input.dataset.role };
+    });
+  }
+  function updatePayoutSelection() {
+    const selected = selectedPayouts();
+    const total = selected.reduce(function (sum, item) {
+      const sale = state.sales.find(function (row) { return String(row.id) === String(item.id); });
+      return sum + (sale ? num(item.role === "grower" ? sale.growerPayout : sale.sellerPayout) : 0);
+    }, 0);
+    const button = $('[data-action="settle-selected"]');
+    const status = $("[data-payout-selection]");
+    const all = $$('[data-payout-select]');
+    const selectAll = $("[data-select-all-payouts]");
+    if (button) {
+      button.disabled = !selected.length || state.busy;
+      button.textContent = selected.length ? "Pay selected · " + money.format(total) : "Pay selected";
+    }
+    if (status) status.textContent = selected.length ? selected.length + " share" + (selected.length === 1 ? "" : "s") + " selected" : "Select any unpaid shares";
+    if (selectAll) {
+      selectAll.checked = Boolean(all.length && selected.length === all.length);
+      selectAll.indeterminate = Boolean(selected.length && selected.length < all.length);
+    }
   }
   function renderPayouts() {
     const summary = payoutSummary();
@@ -295,7 +327,8 @@
       })
     ) : empty("Everyone is settled.");
     const unsettled = state.sales.filter(function (sale) { return !sale.growerPaidAt || !sale.sellerPaidAt; }).sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
-    $("#managerPayoutQueue").innerHTML = unsettled.length ? table(
+    const payoutTools = unsettled.length && state.adminCode ? '<div class="bulk-payout-bar"><label class="bulk-select"><input type="checkbox" data-select-all-payouts><span>Select all open shares</span></label><span class="selection-status" data-payout-selection>Select any unpaid shares</span><button class="button primary" type="button" data-action="settle-selected" disabled>Pay selected</button></div>' : "";
+    $("#managerPayoutQueue").innerHTML = unsettled.length ? payoutTools + table(
       ["Sale", "Grower share", "Seller share", "Settle"],
       unsettled.map(function (sale) {
         return [
@@ -306,6 +339,7 @@
         ];
       })
     ) : empty("No unsettled sales.");
+    updatePayoutSelection();
   }
   function renderLedger() {
     const query = $("#ledgerSearch").value.trim().toLowerCase();
@@ -487,12 +521,15 @@
     window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
   async function mutate(action, payload, successMessage) {
+    return mutateWith(function () { return request(action, payload); }, successMessage);
+  }
+  async function mutateWith(operation, successMessage) {
     if (state.busy) return false;
     state.busy = true;
     $$("button[type=submit]").forEach(function (button) { button.disabled = true; });
     setSync("loading", "Saving to shared sheet…");
     try {
-      const result = await request(action, payload);
+      const result = await operation();
       applyData(result.data);
       setSync("synced", "Shared sheet synced");
       renderAll();
@@ -664,6 +701,24 @@
         await mutate("rolloverWeek", { label: label }, "New tracking week started. Stock, supply costs, and balances carried forward.");
       }
     }
+    if (action === "settle-selected" && state.adminCode) {
+      const items = selectedPayouts();
+      if (items.length && confirm("Mark " + items.length + " selected payout share" + (items.length === 1 ? "" : "s") + " as paid? The sale records will stay unchanged.")) {
+        await mutateWith(async function () {
+          let result;
+          for (const item of items) {
+            result = await request("settleSale", { id: item.id, role: item.role });
+          }
+          return result;
+        }, "Selected payouts marked paid.");
+      }
+    }
+    const selectAllPayouts = event.target.closest("[data-select-all-payouts]");
+    if (selectAllPayouts) {
+      $$('[data-payout-select]').forEach(function (input) { input.checked = selectAllPayouts.checked; });
+      updatePayoutSelection();
+    }
+    if (event.target.closest("[data-payout-select]")) updatePayoutSelection();
     const settle = event.target.closest("[data-settle]");
     if (settle && state.adminCode) await mutate("settleSale", { id: settle.dataset.settle, role: settle.dataset.role }, "Payout status updated.");
     const editGrow = event.target.closest("[data-edit-grow]");

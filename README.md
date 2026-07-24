@@ -41,6 +41,10 @@ The public site contains no gang or manager password. Both codes are stored only
 
 Managers can correct or delete existing grow and sale entries from the site. They can also reopen an individual grower or seller payout that was marked paid by mistake without deleting the sale. Deleting a sale removes its payout and restores its boxes to inventory. Deleting a grow is blocked when its stock is needed by recorded sales. Records are soft-deleted from live totals rather than erased from the sheet, and every edit, payout reopen, or deletion saves its before/after values and reason in Web_Corrections. Any sale correction that changes a person, strain, box count, or price reopens both payout statuses.
 
+The Manager payout queue also supports selecting multiple unpaid grower or seller shares and marking them paid in one confirmed batch. The batch action only updates the selected settlement timestamps under the existing manager authorization and document lock, then returns a fresh full tracker snapshot; it does not rewrite sale, inventory, member, price, or correction data.
+
+The frontend remains compatible with the currently deployed backend by sending the same existing `settleSale` operation once per selected share. After the updated Apps Script is deployed, the client can switch to the server-side `settlePayouts` action without changing the manager workflow or the sheet schema.
+
 ## Setup and validation
 
 Follow apps-script/README.md for the one-time backend deployment, then put the deployed /exec URL in config.js.
