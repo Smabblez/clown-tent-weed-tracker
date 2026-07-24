@@ -53,4 +53,3 @@ Run locally with a static server, then validate with:
 
     node scripts/validate.mjs
     node --check app.js
-
