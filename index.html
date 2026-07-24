@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0a0d09">
   <meta name="description" content="The Clown Tent weed operation ledger for GTA roleplay grow intake, sales, inventory, and payouts.">
-  <title>The Clown Tent — Weed Operations</title>
+  <title>The Clown Tent â€” Weed Operations</title>
   <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
@@ -22,18 +22,18 @@
   </header>
 
   <nav class="app-nav" aria-label="Tracker sections">
-    <button type="button" data-view="dashboard" aria-current="page"><span aria-hidden="true">⌂</span><b>Dashboard</b></button>
-    <button type="button" data-view="intake"><span aria-hidden="true">＋</span><b>Grow intake</b></button>
-    <button type="button" data-view="supplies"><span aria-hidden="true">▣</span><b>Supplies</b></button>
+    <button type="button" data-view="dashboard" aria-current="page"><span aria-hidden="true">âŒ‚</span><b>Dashboard</b></button>
+    <button type="button" data-view="intake"><span aria-hidden="true">ï¼‹</span><b>Grow intake</b></button>
+    <button type="button" data-view="supplies"><span aria-hidden="true">â–£</span><b>Supplies</b></button>
     <button type="button" data-view="sales"><span aria-hidden="true">$</span><b>Record sale</b></button>
     <button type="button" data-view="payouts"><span aria-hidden="true">%</span><b>Payouts</b></button>
-    <button type="button" data-view="ledger"><span aria-hidden="true">≡</span><b>Ledger</b></button>
-    <button type="button" data-view="manager"><span aria-hidden="true">⚙</span><b>Manager</b></button>
+    <button type="button" data-view="ledger"><span aria-hidden="true">â‰¡</span><b>Ledger</b></button>
+    <button type="button" data-view="manager"><span aria-hidden="true">âš™</span><b>Manager</b></button>
   </nav>
 
   <main id="app-main" tabindex="-1">
     <aside class="week-bar" aria-label="Active tracking week">
-      <div><span class="status-dot" aria-hidden="true"></span><p><small>ACTIVE PERIOD</small><strong data-active-week>Loading current week…</strong></p></div>
+      <div><span class="status-dot" aria-hidden="true"></span><p><small>ACTIVE PERIOD</small><strong data-active-week>Loading current weekâ€¦</strong></p></div>
       <p data-week-summary>Inventory and unpaid payouts carry forward automatically.</p>
       <button class="button secondary" type="button" data-go="manager">Manager controls</button>
     </aside>
@@ -45,16 +45,16 @@
       <div class="metric-grid" id="dashboardMetrics"></div>
       <div class="dashboard-grid">
         <article class="panel inventory-panel">
-          <div class="panel-heading"><div><p class="eyebrow">LIVE STOCK</p><h2>Inventory</h2></div><button class="text-button" type="button" data-go="intake">Add stock →</button></div>
+          <div class="panel-heading"><div><p class="eyebrow">LIVE STOCK</p><h2>Inventory</h2></div><button class="text-button" type="button" data-go="intake">Add stock â†’</button></div>
           <div id="inventoryTable"></div>
         </article>
         <article class="panel payout-panel">
-          <div class="panel-heading"><div><p class="eyebrow">MONEY OWED</p><h2>Open payouts</h2></div><button class="text-button" type="button" data-go="payouts">View payouts →</button></div>
+          <div class="panel-heading"><div><p class="eyebrow">MONEY OWED</p><h2>Open payouts</h2></div><button class="text-button" type="button" data-go="payouts">View payouts â†’</button></div>
           <div id="dashboardPayouts"></div>
         </article>
       </div>
       <article class="panel recent-panel">
-        <div class="panel-heading"><div><p class="eyebrow">LATEST MOVEMENT</p><h2>Recent activity</h2></div><button class="text-button" type="button" data-go="ledger">Full ledger →</button></div>
+        <div class="panel-heading"><div><p class="eyebrow">LATEST MOVEMENT</p><h2>Recent activity</h2></div><button class="text-button" type="button" data-go="ledger">Full ledger â†’</button></div>
         <div id="recentActivity"></div>
       </article>
     </section>
@@ -119,7 +119,7 @@
           </div>
           <button class="button sale full" type="submit">Record sale and split payout</button>
         </form>
-        <aside class="panel payout-preview" aria-live="polite"><p class="eyebrow">LIVE SPLIT</p><h2 data-preview-gross>$0</h2><p>Gross sale</p><div><span><i class="grower-color"></i>Grower — 70%</span><strong data-preview-grower>$0</strong></div><div><span><i class="seller-color"></i>Seller — 15%</span><strong data-preview-seller>$0</strong></div><div><span>Supplies from gang share</span><strong data-preview-supplies>−$0</strong></div><div><span><i class="gang-color"></i>Gang keeps</span><strong data-preview-gang>$0</strong></div><small>Supplies only reduce the gang's 15%. Grower and seller payouts stay whole.</small></aside>
+        <aside class="panel payout-preview" aria-live="polite"><p class="eyebrow">LIVE SPLIT</p><h2 data-preview-gross>$0</h2><p>Gross sale</p><div><span><i class="grower-color"></i>Grower â€” 70%</span><strong data-preview-grower>$0</strong></div><div><span><i class="seller-color"></i>Seller â€” 15%</span><strong data-preview-seller>$0</strong></div><div><span>Supplies from gang share</span><strong data-preview-supplies>âˆ’$0</strong></div><div><span><i class="gang-color"></i>Gang keeps</span><strong data-preview-gang>$0</strong></div><small>Supplies only reduce the gang's 15%. Grower and seller payouts stay whole.</small></aside>
       </div>
     </section>
 
@@ -143,7 +143,7 @@
         <div><p class="eyebrow">WEEKLY ROLLOVER</p><h2 data-manager-week>Current week</h2><p>Closing the week starts a fresh reporting period. Shelf trimmings, supply balance, unpaid payouts, and history all carry forward.</p></div>
         <button class="button primary" type="button" data-action="rollover-week">Close week + start next</button>
       </article>
-      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">MANAGER PAYOUT CONTROL</p><h2>Settle payouts</h2><p>Only this unlocked Manager page can mark grower, seller, or supply reimbursements paid. Select several and confirm once when you are paying a group.</p></div></div><div id="managerPayoutQueue"></div></article>
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">MANAGER PAYOUT CONTROL</p><h2>Settle payouts</h2><p>Only this unlocked Manager page can mark grower, seller, or supply reimbursements paid. Select the checks you want, then confirm once with Pay selected.</p></div></div><div id="managerPayoutQueue"></div></article>
       <article class="panel corrections-panel">
         <div class="panel-heading"><div><p class="eyebrow">FIX A MISTAKE</p><h2>Correct grows, sales, and payouts</h2><p>Edit or delete mistaken records, or reopen a payout marked paid by accident. Every change stays in the audit history.</p></div></div>
         <div class="correction-grid">
@@ -185,7 +185,7 @@
   </dialog>
   <dialog class="edit-dialog" data-correction-dialog aria-labelledby="correction-title">
     <form id="correctionForm">
-      <div class="dialog-heading"><div><p class="eyebrow">MANAGER CORRECTION</p><h2 id="correction-title" data-correction-title>Edit record</h2></div><button class="dialog-close" type="button" data-action="close-correction" aria-label="Close correction form">×</button></div>
+      <div class="dialog-heading"><div><p class="eyebrow">MANAGER CORRECTION</p><h2 id="correction-title" data-correction-title>Edit record</h2></div><button class="dialog-close" type="button" data-action="close-correction" aria-label="Close correction form">Ã—</button></div>
       <input type="hidden" name="recordType"><input type="hidden" name="recordId">
       <div data-correction-grow hidden>
         <div class="field-grid two"><label><span>Date and time</span><input name="growDate" type="datetime-local" required></label><label><span>Grower</span><select name="growGrower" data-members required></select></label></div>
@@ -199,7 +199,13 @@
         <label><span>Reference</span><input name="saleReference" type="text" maxlength="120"></label>
         <p class="correction-warning">Changing the seller, grower, strain, boxes, or price reopens both payouts so a manager can confirm the corrected amounts.</p>
       </div>
-      <label><span>Why is this being corrected?</span><input name="reason" type="text" maxlength="240" placeholder="Wrong quantity, wrong member, typo…" required></label>
+      <div data-correction-supply hidden>
+        <div class="field-grid two"><label><span>Date and time</span><input name="supplyDate" type="datetime-local" required></label><label><span>Bought by</span><select name="supplyBuyer" data-members required></select></label></div>
+        <div class="field-grid two"><label><span>Item</span><input name="supplyItem" type="text" maxlength="100" required></label><label><span>Quantity</span><input name="supplyQuantity" type="number" min="1" step="1" required></label></div>
+        <div class="field-grid two"><label><span>Cost per item</span><input name="supplyUnitCost" type="number" min="0" step="0.01" required></label><label><span>Notes</span><input name="supplyNotes" type="text" maxlength="300"></label></div>
+        <p class="correction-warning">Changing who fronted the purchase, quantity, or cost reopens its reimbursement. The supply recovery balance updates for future sales.</p>
+      </div>
+      <label><span>Why is this being corrected?</span><input name="reason" type="text" maxlength="240" placeholder="Wrong quantity, wrong member, typoâ€¦" required></label>
       <div class="dialog-actions"><button class="button secondary" type="button" data-action="close-correction">Cancel</button><button class="button primary" type="submit">Save correction</button></div>
     </form>
   </dialog>
@@ -208,3 +214,4 @@
   <script src="app.js?v=5"></script>
 </body>
 </html>
+
