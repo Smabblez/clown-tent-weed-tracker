@@ -12,7 +12,7 @@ const PAYOUT_RATES = Object.freeze({ grower: 0.70, gang: 0.15, seller: 0.15 });
 
 const HEADERS = Object.freeze({
   grows: ["id", "timestamp", "grower", "strain", "trimmings", "unitPrice", "notes", "createdAt", "weekId", "deletedAt", "deleteReason"],
-  supplies: ["id", "timestamp", "buyer", "item", "quantity", "unitCost", "total", "notes", "paidAt", "createdAt", "weekId"],
+  supplies: ["id", "timestamp", "buyer", "item", "quantity", "unitCost", "total", "notes", "paidAt", "createdAt", "weekId", "deletedAt", "deleteReason"],
   sales: ["id", "timestamp", "seller", "grower", "strain", "boxes", "unitPrice", "gross", "supplyDeduction", "growerPayout", "gangPayout", "sellerPayout", "reference", "growerPaidAt", "sellerPaidAt", "createdAt", "weekId", "deletedAt", "deleteReason"],
   corrections: ["id", "timestamp", "recordType", "recordId", "action", "beforeJson", "afterJson", "reason", "createdAt"],
   config: ["kind", "name", "price", "active"],
@@ -29,15 +29,17 @@ function doPost(e) {
     assertAccess_(body.accessCode);
     const action = String(body.action || "");
     let result;
-    if (["verifyAdmin", "updateGrow", "updateSale", "deleteGrow", "deleteSale", "settleSale", "settleSupply", "settlePayouts", "reopenPayout", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
+    if (["verifyAdmin", "updateGrow", "updateSupply", "updateSale", "deleteGrow", "deleteSupply", "deleteSale", "settleSale", "settleSupply", "settlePayouts", "reopenPayout", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
     if (action === "bootstrap") result = bootstrap_();
     else if (action === "verifyAdmin") result = { authorized: true };
     else if (action === "addGrow") result = addGrow_(body.record || {});
     else if (action === "addSupply") result = addSupply_(body.record || {});
     else if (action === "addSale") result = addSale_(body.record || {});
     else if (action === "updateGrow") result = updateGrow_(body.id, body.record || {}, body.reason);
+    else if (action === "updateSupply") result = updateSupply_(body.id, body.record || {}, body.reason);
     else if (action === "updateSale") result = updateSale_(body.id, body.record || {}, body.reason);
     else if (action === "deleteGrow") result = deleteGrow_(body.id, body.reason);
+    else if (action === "deleteSupply") result = deleteSupply_(body.id, body.reason);
     else if (action === "deleteSale") result = deleteSale_(body.id, body.reason);
     else if (action === "settleSale") result = settleSale_(body.id, body.role);
     else if (action === "settleSupply") result = settleSupply_(body.id);
@@ -75,7 +77,7 @@ function bootstrap_() {
     members: configs.filter(function (row) { return row.kind === "member" && truthy_(row.active); }).map(function (row) { return row.name; }).sort(),
     strains: configs.filter(function (row) { return row.kind === "strain" && truthy_(row.active); }).map(function (row) { return { name: row.name, price: number_(row.price) }; }).sort(function (a, b) { return a.name.localeCompare(b.name); }),
     grows: readActiveObjects_(SHEET_NAMES.grows).map(normalizeGrow_),
-    supplies: readObjects_(SHEET_NAMES.supplies).map(normalizeSupply_),
+    supplies: readActiveObjects_(SHEET_NAMES.supplies).map(normalizeSupply_),
     sales: readActiveObjects_(SHEET_NAMES.sales).map(normalizeSale_),
     corrections: readObjects_(SHEET_NAMES.corrections),
     weeks: readObjects_(SHEET_NAMES.weeks),
@@ -125,6 +127,51 @@ function addSupply_(record) {
       createdAt: new Date().toISOString(),
       weekId: week.id
     });
+  });
+  return bootstrap_();
+}
+
+function updateSupply_(id, record, reason) {
+  validateRequired_(record, ["timestamp", "buyer", "item", "quantity", "unitCost"]);
+  reason = clean_(reason, 240);
+  if (!reason) throw new Error("Add a short reason for the supply correction.");
+  const quantity = number_(record.quantity);
+  const unitCost = number_(record.unitCost);
+  if (!Number.isInteger(quantity) || quantity <= 0) throw new Error("Supply quantity must be a whole number greater than zero.");
+  if (unitCost < 0) throw new Error("Supply cost cannot be negative.");
+  withLock_(function () {
+    const located = findObjectRow_(SHEET_NAMES.supplies, id);
+    const before = normalizeSupply_(located.object);
+    if (before.deletedAt) throw new Error("That supply purchase has already been deleted.");
+    const buyer = clean_(record.buyer, 60);
+    const item = clean_(record.item, 100);
+    const affectsReimbursement = String(before.buyer) !== buyer || number_(before.quantity) !== quantity || number_(before.unitCost) !== unitCost;
+    const after = Object.assign({}, before, {
+      timestamp: safeDate_(record.timestamp),
+      buyer: buyer,
+      item: item,
+      quantity: quantity,
+      unitCost: unitCost,
+      total: round_(quantity * unitCost),
+      notes: clean_(record.notes, 300),
+      paidAt: affectsReimbursement ? "" : before.paidAt
+    });
+    writeObjectRow_(SHEET_NAMES.supplies, located.rowNumber, after);
+    logCorrection_("supply", id, "edit", before, after, reason);
+  });
+  return bootstrap_();
+}
+
+function deleteSupply_(id, reason) {
+  reason = clean_(reason, 240);
+  if (!reason) throw new Error("Add a short reason for deleting the supply purchase.");
+  withLock_(function () {
+    const located = findObjectRow_(SHEET_NAMES.supplies, id);
+    const before = normalizeSupply_(located.object);
+    if (before.deletedAt) throw new Error("That supply purchase has already been deleted.");
+    const after = Object.assign({}, before, { deletedAt: new Date().toISOString(), deleteReason: reason });
+    writeObjectRow_(SHEET_NAMES.supplies, located.rowNumber, after);
+    logCorrection_("supply", id, "delete", before, after, reason);
   });
   return bootstrap_();
 }
@@ -308,6 +355,8 @@ function settleSupply_(id) {
     if (paidIndex < 0) throw new Error("The supply reimbursement column is missing from the sheet.");
     const rowIndex = values.findIndex(function (row, index) { return index > 0 && String(row[idIndex]) === String(id); });
     if (rowIndex < 1) throw new Error("Supply purchase not found.");
+    const deletedIndex = headers.indexOf("deletedAt");
+    if (deletedIndex >= 0 && values[rowIndex][deletedIndex]) throw new Error("Deleted supply purchases cannot be settled.");
     if (!values[rowIndex][paidIndex]) sheet.getRange(rowIndex + 1, paidIndex + 1).setValue(new Date().toISOString());
   });
   return bootstrap_();
@@ -342,6 +391,7 @@ function settlePayouts_(items) {
     var deletedIndex = salesHeaders.indexOf("deletedAt");
     var supplyIdIndex = supplyHeaders.indexOf("id");
     var supplyPaidIndex = supplyHeaders.indexOf("paidAt");
+    var supplyDeletedIndex = supplyHeaders.indexOf("deletedAt");
     if (supplyPaidIndex < 0) throw new Error("The supply reimbursement column is missing from the sheet.");
     var sales = {};
     var supplies = {};
@@ -355,7 +405,8 @@ function settlePayouts_(items) {
     normalized.forEach(function (item) {
       if (item.role === "supply") {
         var supply = supplies[item.id];
-        if (!supply) throw new Error("One selected supply purchase no longer exists. Refresh and try again.");
+         if (!supply) throw new Error("One selected supply purchase no longer exists. Refresh and try again.");
+         if (supplyDeletedIndex >= 0 && supply.row[supplyDeletedIndex]) throw new Error("Deleted supply purchases cannot be settled.");
         if (!supply.row[supplyPaidIndex]) updates.push({ sheet: suppliesSheet, rowIndex: supply.rowIndex, column: supplyPaidIndex + 1 });
         return;
       }
@@ -380,6 +431,7 @@ function reopenPayout_(id, role, reason) {
     if (role === "supply") {
       const locatedSupply = findObjectRow_(SHEET_NAMES.supplies, id);
       const beforeSupply = normalizeSupply_(locatedSupply.object);
+      if (beforeSupply.deletedAt) throw new Error("Deleted supply purchases cannot have reimbursements reopened.");
       const afterSupply = Object.assign({}, beforeSupply, { paidAt: "" });
       writeObjectRow_(SHEET_NAMES.supplies, locatedSupply.rowNumber, afterSupply);
       logCorrection_("supply", id, "reopen", beforeSupply, afterSupply, reason);
@@ -479,7 +531,7 @@ function availableBoxes_(grower, strain) {
 }
 
 function outstandingSupplies_() {
-  const purchased = readObjects_(SHEET_NAMES.supplies).reduce(function (sum, row) {
+  const purchased = readActiveObjects_(SHEET_NAMES.supplies).reduce(function (sum, row) {
     return sum + number_(row.total || number_(row.quantity) * number_(row.unitCost));
   }, 0);
   const recovered = readActiveObjects_(SHEET_NAMES.sales).reduce(function (sum, row) {
@@ -489,7 +541,7 @@ function outstandingSupplies_() {
 }
 
 function outstandingSuppliesExcludingSale_(saleId) {
-  const purchased = readObjects_(SHEET_NAMES.supplies).reduce(function (sum, row) {
+  const purchased = readActiveObjects_(SHEET_NAMES.supplies).reduce(function (sum, row) {
     return sum + number_(row.total || number_(row.quantity) * number_(row.unitCost));
   }, 0);
   const recovered = readActiveObjects_(SHEET_NAMES.sales).reduce(function (sum, row) {
@@ -664,3 +716,4 @@ function safeDate_(value) {
 function json_(value) {
   return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON);
 }
+
