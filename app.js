@@ -3,6 +3,7 @@
 
   const config = window.TRACKER_CONFIG || {};
   const TRIMMINGS_PER_BOX = 15;
+  const PAYOUT_RATES = Object.freeze({ grower: 0.70, gang: 0.15, seller: 0.15 });
   const state = { members: [], strains: [], grows: [], supplies: [], sales: [], corrections: [], weeks: [], activeWeek: null, accessCode: sessionStorage.getItem("ct_access") || "", adminCode: sessionStorage.getItem("ct_admin") || "", pendingView: "", busy: false };
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -39,8 +40,8 @@
   }
   function splitSale(boxes, price) {
     const gross = rounded(num(boxes) * num(price));
-    const grower = rounded(gross * 0.7);
-    const seller = rounded(gross * 0.15);
+    const grower = rounded(gross * PAYOUT_RATES.grower);
+    const seller = rounded(gross * PAYOUT_RATES.seller);
     const gangShare = rounded(gross - grower - seller);
     const supplyDeduction = Math.min(gangShare, supplySummary().outstanding);
     return { gross: gross, grower: grower, seller: seller, supplyDeduction: supplyDeduction, gang: rounded(gangShare - supplyDeduction) };
@@ -159,21 +160,31 @@
     state.sales.forEach(function (sale) {
       gangTotal += num(sale.gangPayout);
       if (!sale.growerPaidAt) {
-        const row = people.get(sale.grower) || { name: sale.grower, grower: 0, seller: 0 };
+        const row = people.get(sale.grower) || { name: sale.grower, grower: 0, seller: 0, supplies: 0 };
         row.grower += num(sale.growerPayout);
         people.set(sale.grower, row);
       }
       if (!sale.sellerPaidAt) {
-        const row = people.get(sale.seller) || { name: sale.seller, grower: 0, seller: 0 };
+        const row = people.get(sale.seller) || { name: sale.seller, grower: 0, seller: 0, supplies: 0 };
         row.seller += num(sale.sellerPayout);
         people.set(sale.seller, row);
       }
     });
+    state.supplies.forEach(function (supply) {
+      if (!supply.paidAt) {
+        const row = people.get(supply.buyer) || { name: supply.buyer, grower: 0, seller: 0, supplies: 0 };
+        row.supplies += num(supply.total || num(supply.quantity) * num(supply.unitCost));
+        people.set(supply.buyer, row);
+      }
+    });
     const list = Array.from(people.values()).map(function (row) {
-      row.total = row.grower + row.seller;
+      row.total = row.grower + row.seller + row.supplies;
       return row;
     }).sort(function (a, b) { return b.total - a.total; });
-    return { people: list, gangTotal: gangTotal };
+    const suppliesDue = state.supplies.reduce(function (sum, supply) {
+      return sum + (supply.paidAt ? 0 : num(supply.total || num(supply.quantity) * num(supply.unitCost)));
+    }, 0);
+    return { people: list, gangTotal: gangTotal, suppliesDue: rounded(suppliesDue) };
   }
   function supplySummary() {
     const purchased = state.supplies.reduce(function (sum, row) { return sum + num(row.total || num(row.quantity) * num(row.unitCost)); }, 0);
@@ -183,14 +194,21 @@
   function memberStatements() {
     const people = new Map();
     state.sales.forEach(function (sale) {
-      const grower = people.get(sale.grower) || { name: sale.grower, earned: 0, paid: 0, due: 0 };
+      const grower = people.get(sale.grower) || { name: sale.grower, earned: 0, supplies: 0, paid: 0, due: 0 };
       grower.earned += num(sale.growerPayout);
       if (sale.growerPaidAt) grower.paid += num(sale.growerPayout); else grower.due += num(sale.growerPayout);
       people.set(sale.grower, grower);
-      const seller = people.get(sale.seller) || { name: sale.seller, earned: 0, paid: 0, due: 0 };
+      const seller = people.get(sale.seller) || { name: sale.seller, earned: 0, supplies: 0, paid: 0, due: 0 };
       seller.earned += num(sale.sellerPayout);
       if (sale.sellerPaidAt) seller.paid += num(sale.sellerPayout); else seller.due += num(sale.sellerPayout);
       people.set(sale.seller, seller);
+    });
+    state.supplies.forEach(function (supply) {
+      const amount = num(supply.total || num(supply.quantity) * num(supply.unitCost));
+      const buyer = people.get(supply.buyer) || { name: supply.buyer, earned: 0, supplies: 0, paid: 0, due: 0 };
+      buyer.supplies += amount;
+      if (supply.paidAt) buyer.paid += amount; else buyer.due += amount;
+      people.set(supply.buyer, buyer);
     });
     return Array.from(people.values()).sort(function (a, b) { return b.due - a.due || b.earned - a.earned; });
   }
@@ -262,9 +280,9 @@
     const summary = supplySummary();
     $("[data-supply-balance]").textContent = money.format(summary.outstanding);
     $("#supplyTable").innerHTML = state.supplies.length ? table(
-      ["When", "Bought by", "Item", "Quantity", "Per item", "Total"],
+      ["When", "Bought by", "Item", "Quantity", "Per item", "Total", "Reimbursement"],
       state.supplies.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).map(function (row) {
-        return [esc(formatDate(row.timestamp)), esc(row.buyer), esc(row.item), { value: number.format(row.quantity), num: true }, { value: money.format(row.unitCost), num: true }, { value: money.format(row.total), num: true }];
+        return [esc(formatDate(row.timestamp)), esc(row.buyer), esc(row.item), { value: number.format(row.quantity), num: true }, { value: money.format(row.unitCost), num: true }, { value: money.format(row.total), num: true }, row.paidAt ? '<span class="paid">Paid</span>' : '<span class="due">Owed</span>'];
       })
     ) : empty("No supply purchases yet.");
     updateSupplyPreview();
@@ -284,6 +302,11 @@
     if (!sale.growerPaidAt && !sale.sellerPaidAt) buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="both">Pay both</button>');
     return '<div class="queue-actions"><div class="payout-options">' + checks.join("") + '</div><div class="payout-quick-actions">' + buttons.join("") + "</div></div>";
   }
+  function supplyQueueActions(supply) {
+    if (!state.adminCode || supply.paidAt) return "";
+    const amount = num(supply.total || num(supply.quantity) * num(supply.unitCost));
+    return '<div class="queue-actions"><div class="payout-options"><label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(supply.id) + '" data-role="supply" aria-label="Select supply reimbursement for ' + esc(supply.buyer) + '"><span>Reimburse · ' + money.format(amount) + '</span></label></div><div class="payout-quick-actions"><button class="mini-button" data-settle="' + esc(supply.id) + '" data-role="supply">Pay now</button></div></div>';
+  }
   function selectedPayouts() {
     return $$('[data-payout-select]:checked').map(function (input) {
       return { id: input.dataset.id, role: input.dataset.role };
@@ -293,7 +316,9 @@
     const selected = selectedPayouts();
     const total = selected.reduce(function (sum, item) {
       const sale = state.sales.find(function (row) { return String(row.id) === String(item.id); });
-      return sum + (sale ? num(item.role === "grower" ? sale.growerPayout : sale.sellerPayout) : 0);
+      if (sale) return sum + num(item.role === "grower" ? sale.growerPayout : sale.sellerPayout);
+      const supply = state.supplies.find(function (row) { return String(row.id) === String(item.id); });
+      return sum + (supply ? num(supply.total || num(supply.quantity) * num(supply.unitCost)) : 0);
     }, 0);
     const button = $('[data-action="settle-selected"]');
     const status = $("[data-payout-selection]");
@@ -317,17 +342,20 @@
     $("#payoutMetrics").innerHTML = [
       metric("Growers owed", money.format(growerOwed), "70% shares not marked paid"),
       metric("Sellers owed", money.format(sellerOwed), "15% shares not marked paid"),
-      metric("Total member queue", money.format(growerOwed + sellerOwed), summary.people.length + " members"),
+      metric("Supply reimbursements", money.format(summary.suppliesDue), "fronted costs not marked paid"),
+      metric("Total member queue", money.format(growerOwed + sellerOwed + summary.suppliesDue), summary.people.length + " members"),
       metric("Gang keeps", money.format(summary.gangTotal), "after supply costs")
     ].join("");
     $("#memberPayouts").innerHTML = statements.length ? table(
-      ["Member", "Total earned", "Paid out", "Remaining due"],
+      ["Member", "Sales earned", "Supply reimbursements", "Paid out", "Remaining due"],
       statements.map(function (row) {
-        return [esc(row.name), { value: money.format(row.earned), num: true }, { value: money.format(row.paid), num: true }, { value: "<strong>" + money.format(row.due) + "</strong>", num: true, raw: true }];
+        return [esc(row.name), { value: money.format(row.earned), num: true }, { value: money.format(row.supplies), num: true }, { value: money.format(row.paid), num: true }, { value: "<strong>" + money.format(row.due) + "</strong>", num: true, raw: true }];
       })
     ) : empty("Everyone is settled.");
     const unsettled = state.sales.filter(function (sale) { return !sale.growerPaidAt || !sale.sellerPaidAt; }).sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
-    const payoutTools = unsettled.length && state.adminCode ? '<div class="bulk-payout-bar"><label class="bulk-select"><input type="checkbox" data-select-all-payouts><span>Select all open shares</span></label><span class="selection-status" data-payout-selection>Select any unpaid shares</span><button class="button primary" type="button" data-action="settle-selected" disabled>Pay selected</button></div>' : "";
+    const unsettledSupplies = state.supplies.filter(function (supply) { return !supply.paidAt; }).sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+    const hasUnsettled = unsettled.length || unsettledSupplies.length;
+    const payoutTools = hasUnsettled && state.adminCode ? '<div class="bulk-payout-bar"><label class="bulk-select"><input type="checkbox" data-select-all-payouts><span>Select all open shares and reimbursements</span></label><span class="selection-status" data-payout-selection>Select any unpaid payouts</span><button class="button primary" type="button" data-action="settle-selected" disabled>Pay selected</button></div>' : "";
     $("#managerPayoutQueue").innerHTML = unsettled.length ? payoutTools + table(
       ["Sale", "Grower share", "Seller share", "Settle"],
       unsettled.map(function (sale) {
@@ -339,6 +367,22 @@
         ];
       })
     ) : empty("No unsettled sales.");
+    if (unsettledSupplies.length) {
+      const supplyQueue = '<h3 class="queue-subheading">Supply reimbursements</h3>' + table(
+        ["Purchase", "Bought by", "Amount", "Settle"],
+        unsettledSupplies.map(function (supply) {
+          return [
+            "<strong>" + esc(supply.item) + "</strong><small>" + esc(formatDate(supply.timestamp)) + " · " + quantity(supply.quantity, "item", "items") + "</small>",
+            esc(supply.buyer),
+            { value: money.format(num(supply.total || num(supply.quantity) * num(supply.unitCost))), num: true },
+            { value: supplyQueueActions(supply), raw: true, num: true }
+          ];
+        })
+      );
+      $("#managerPayoutQueue").innerHTML = (unsettled.length ? $("#managerPayoutQueue").innerHTML : payoutTools) + supplyQueue;
+    } else if (!unsettled.length) {
+      $("#managerPayoutQueue").innerHTML = empty("No unpaid sales or supply reimbursements.");
+    }
     updatePayoutSelection();
   }
   function renderLedger() {
@@ -388,11 +432,18 @@
       (row.sellerPaidAt ? '<button class="mini-button" type="button" data-reopen-payout="' + esc(row.id) + '" data-role="seller">Undo seller paid</button>' : "");
     return '<div class="correction-row"><div><strong>' + label + "</strong><small>" + detail + '</small></div><div class="correction-actions"><button class="mini-button" type="button" data-edit-' + type + '="' + esc(row.id) + '">Edit</button>' + payoutButtons + '<button class="mini-button danger-mini" type="button" data-delete-' + type + '="' + esc(row.id) + '">' + deleteLabel + "</button></div></div>";
   }
+  function supplyCorrectionRow(row) {
+    const amount = num(row.total || num(row.quantity) * num(row.unitCost));
+    const action = row.paidAt ? '<button class="mini-button" type="button" data-reopen-payout="' + esc(row.id) + '" data-role="supply">Undo reimbursement paid</button>' : '<span class="due">Owed</span>';
+    return '<div class="correction-row"><div><strong>' + esc(row.item) + "</strong><small>" + esc(row.buyer) + " · " + money.format(amount) + " · " + formatDate(row.timestamp) + '</small></div><div class="correction-actions">' + action + "</div></div>";
+  }
   function renderCorrections() {
     const grows = state.grows.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
     const sales = state.sales.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
+    const supplies = state.supplies.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
     $("#managerGrowRecords").innerHTML = grows.length ? '<div class="correction-list">' + grows.map(function (row) { return correctionRow("grow", row); }).join("") + "</div>" : empty("No grows to correct.");
     $("#managerSaleRecords").innerHTML = sales.length ? '<div class="correction-list">' + sales.map(function (row) { return correctionRow("sale", row); }).join("") + "</div>" : empty("No sales to correct.");
+    $("#managerSupplyRecords").innerHTML = supplies.length ? '<div class="correction-list">' + supplies.map(supplyCorrectionRow).join("") + "</div>" : empty("No supply reimbursements yet.");
     const history = state.corrections.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 10);
     $("#managerCorrectionHistory").innerHTML = history.length ? '<div class="history-list">' + history.map(function (row) {
       const actionName = String(row.action || "edit").toLowerCase();
@@ -707,7 +758,7 @@
         await mutateWith(async function () {
           let result;
           for (const item of items) {
-            result = await request("settleSale", { id: item.id, role: item.role });
+            result = await request(item.role === "supply" ? "settleSupply" : "settleSale", { id: item.id, role: item.role });
           }
           return result;
         }, "Selected payouts marked paid.");
@@ -720,7 +771,10 @@
     }
     if (event.target.closest("[data-payout-select]")) updatePayoutSelection();
     const settle = event.target.closest("[data-settle]");
-    if (settle && state.adminCode) await mutate("settleSale", { id: settle.dataset.settle, role: settle.dataset.role }, "Payout status updated.");
+    if (settle && state.adminCode) {
+      const settleAction = settle.dataset.role === "supply" ? "settleSupply" : "settleSale";
+      await mutate(settleAction, { id: settle.dataset.settle, role: settle.dataset.role }, settle.dataset.role === "supply" ? "Supply reimbursement marked paid." : "Payout status updated.");
+    }
     const editGrow = event.target.closest("[data-edit-grow]");
     if (editGrow) openCorrection("grow", editGrow.dataset.editGrow);
     const editSale = event.target.closest("[data-edit-sale]");

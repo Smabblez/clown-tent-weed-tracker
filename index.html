@@ -80,7 +80,7 @@
     </section>
 
     <section class="view" data-view-panel="supplies" aria-labelledby="supplies-title" hidden>
-      <div class="page-heading compact"><div><p class="eyebrow">STEP 02 / COSTS IN</p><h1 id="supplies-title">Log supplies.</h1><p>Record seeds or other supplies. Their total is repaid from the gang's 15% share.</p></div></div>
+      <div class="page-heading compact"><div><p class="eyebrow">STEP 02 / COSTS IN</p><h1 id="supplies-title">Log supplies.</h1><p>Record supplies bought by a member. The gang owes that buyer, and the cost is recovered from the gang's 15% share.</p></div></div>
       <div class="form-layout">
         <form class="panel tracker-form" id="supplyForm">
           <div class="field-grid two">
@@ -95,7 +95,7 @@
           <label><span>Notes <i>optional</i></span><textarea name="notes" rows="3" placeholder="Vendor, run, receipt, or anything worth remembering"></textarea></label>
           <button class="button primary full" type="submit">Add supply cost</button>
         </form>
-        <aside class="panel payout-preview" aria-live="polite"><p class="eyebrow">SUPPLY TOTAL</p><h2 data-preview-supply-total>$0</h2><p>Added to the gang expense balance</p><div><span>Current balance</span><strong data-supply-balance>$0</strong></div><div><span>Balance after entry</span><strong data-preview-supply-balance>$0</strong></div><small>Future gang shares repay this balance. At the usual $3,000 sale, the gang's 15% is $450.</small></aside>
+        <aside class="panel payout-preview" aria-live="polite"><p class="eyebrow">SUPPLY TOTAL</p><h2 data-preview-supply-total>$0</h2><p>Owed to the member who fronted it</p><div><span>Current recovery balance</span><strong data-supply-balance>$0</strong></div><div><span>Recovery balance after entry</span><strong data-preview-supply-balance>$0</strong></div><small>Future gang shares recover this expense. The buyer's reimbursement is tracked separately until a manager marks it paid.</small></aside>
       </div>
       <article class="panel"><div class="panel-heading"><div><p class="eyebrow">PURCHASE HISTORY</p><h2>Supply ledger</h2></div></div><div id="supplyTable"></div></article>
     </section>
@@ -143,12 +143,13 @@
         <div><p class="eyebrow">WEEKLY ROLLOVER</p><h2 data-manager-week>Current week</h2><p>Closing the week starts a fresh reporting period. Shelf trimmings, supply balance, unpaid payouts, and history all carry forward.</p></div>
         <button class="button primary" type="button" data-action="rollover-week">Close week + start next</button>
       </article>
-      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">MANAGER PAYOUT CONTROL</p><h2>Settle payouts</h2><p>Only this unlocked Manager page can mark grower or seller payouts paid. Select several shares and confirm once when you are paying a group.</p></div></div><div id="managerPayoutQueue"></div></article>
+      <article class="panel"><div class="panel-heading"><div><p class="eyebrow">MANAGER PAYOUT CONTROL</p><h2>Settle payouts</h2><p>Only this unlocked Manager page can mark grower, seller, or supply reimbursements paid. Select several and confirm once when you are paying a group.</p></div></div><div id="managerPayoutQueue"></div></article>
       <article class="panel corrections-panel">
         <div class="panel-heading"><div><p class="eyebrow">FIX A MISTAKE</p><h2>Correct grows, sales, and payouts</h2><p>Edit or delete mistaken records, or reopen a payout marked paid by accident. Every change stays in the audit history.</p></div></div>
         <div class="correction-grid">
           <section aria-labelledby="manager-grows-title"><h3 id="manager-grows-title">Grow entries</h3><div id="managerGrowRecords"></div></section>
           <section aria-labelledby="manager-sales-title"><h3 id="manager-sales-title">Sales</h3><div id="managerSaleRecords"></div></section>
+          <section aria-labelledby="manager-supplies-title"><h3 id="manager-supplies-title">Supply reimbursements</h3><div id="managerSupplyRecords"></div></section>
         </div>
         <div class="correction-history"><h3>Correction history</h3><div id="managerCorrectionHistory"></div></div>
       </article>
