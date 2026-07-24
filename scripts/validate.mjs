@@ -29,11 +29,11 @@ if (!html.includes('name="trimmings"') || !html.includes("data-admin-dialog") ||
   console.error("Trimmings intake or manager authorization controls are missing.");
   process.exit(1);
 }
-if (!html.includes('id="managerPayoutQueue"') || !html.includes('id="managerSupplyRecords"') || html.includes('id="payoutQueue"') || !js.includes('data-select-all-payouts') || !js.includes('data-action="settle-selected"') || !js.includes('#managerPayoutQueue') || !js.includes('if (!state.adminCode) return ""') || !js.includes('selectedPayouts') || !js.includes('supplyQueueActions') || !js.includes('mutateWith(function') || !js.includes('settlePayouts') || !js.includes('settleSupply') || !backend.includes('"settleSale"') || !backend.includes('"settleSupply"') || !backend.includes('"settlePayouts"') || !backend.includes('settlePayouts_') || !backend.includes('paidAt') || !backend.includes('withLock_') || !backend.includes("assertAdmin_(body.adminCode)")) {
+if (!html.includes('id="managerPayoutQueue"') || !html.includes('id="managerSupplyRecords"') || html.includes('id="payoutQueue"') || !js.includes('data-select-all-payouts') || !js.includes('data-action="settle-selected"') || !js.includes('#managerPayoutQueue') || !js.includes('if (!state.adminCode) return ""') || !js.includes('selectedPayouts') || !js.includes('supplyQueueActions') || !js.includes('mutateWith(function') || !js.includes('settlePayouts') || !js.includes('settleSupply') || js.includes('data-settle=') || !backend.includes('"settleSale"') || !backend.includes('"settleSupply"') || !backend.includes('"settlePayouts"') || !backend.includes('settlePayouts_') || !backend.includes('paidAt') || !backend.includes('withLock_') || !backend.includes("assertAdmin_(body.adminCode)")) {
   console.error("Payout settlement is not protected by manager authorization.");
   process.exit(1);
 }
-if (!html.includes('id="correctionForm"') || !html.includes('id="managerGrowRecords"') || !html.includes('id="managerSaleRecords"') || !js.includes('mutate("updateGrow"') || !js.includes('mutate("updateSale"') || !js.includes('mutate("deleteGrow"') || !js.includes('mutate("deleteSale"') || !js.includes('mutate("reopenPayout"') || !backend.includes('corrections: "Web_Corrections"') || !backend.includes("deleteGrow_") || !backend.includes("deleteSale_") || !backend.includes("reopenPayout_") || !backend.includes("readActiveObjects_") || !backend.includes("logCorrection_") || !backend.includes("assertInventoryValid_")) {
+if (!html.includes('id="correctionForm"') || !html.includes('data-correction-supply') || !html.includes('id="managerGrowRecords"') || !html.includes('id="managerSaleRecords"') || !js.includes('mutate("updateGrow"') || !js.includes('mutate("updateSupply"') || !js.includes('mutate("updateSale"') || !js.includes('mutate("deleteGrow"') || !js.includes('mutate("deleteSupply"') || !js.includes('mutate("deleteSale"') || !js.includes('mutate("reopenPayout"') || !js.includes('data-edit-supply') || !js.includes('data-delete-supply') || !backend.includes('corrections: "Web_Corrections"') || !backend.includes("deleteGrow_") || !backend.includes("updateSupply_") || !backend.includes("deleteSupply_") || !backend.includes("deleteSale_") || !backend.includes("reopenPayout_") || !backend.includes("readActiveObjects_") || !backend.includes("logCorrection_") || !backend.includes("assertInventoryValid_")) {
   console.error("Manager correction controls, audit history, or inventory safeguards are missing.");
   process.exit(1);
 }
@@ -42,3 +42,4 @@ if (!html.includes('id="supplyForm"') || !js.includes('mutate("addSupply"') || !
   process.exit(1);
 }
 console.log("Tracker static validation passed.");
+
