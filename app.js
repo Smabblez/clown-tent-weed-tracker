@@ -86,7 +86,7 @@
   async function loadData(showNotice) {
     if (state.busy) return;
     state.busy = true;
-    setSync("loading", "Syncing shared sheet…");
+    setSync("loading", "Syncing shared sheetâ€¦");
     try {
       const result = await request("bootstrap");
       applyData(result.data);
@@ -243,8 +243,8 @@
       : supply
         ? esc(row.buyer) + " bought " + quantity(amount, "item", "items") + " of " + esc(row.item)
         : esc(row.seller) + " sold " + quantity(amount, "box", "boxes") + " of " + esc(row.strain);
-    const badge = grow ? "+" : supply ? "−" : "$";
-    const value = grow ? "+" + number.format(amount) : supply ? "−" + money.format(row.total) : money.format(row.gross);
+    const badge = grow ? "+" : supply ? "âˆ’" : "$";
+    const value = grow ? "+" + number.format(amount) : supply ? "âˆ’" + money.format(row.total) : money.format(row.gross);
     return '<div class="activity ' + row.type + '"><span class="activity-badge">' + badge + "</span><div><strong>" + text + "</strong><small>" + esc(formatDate(row.timestamp)) + "</small></div><b>" + value + "</b></div>";
   }
   function renderDashboard() {
@@ -290,22 +290,18 @@
   function queueActions(sale) {
     if (!state.adminCode) return "";
     const checks = [];
-    const buttons = [];
     if (!sale.growerPaidAt) {
-      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="grower" aria-label="Select grower payout for ' + esc(sale.grower) + '"><span>Grower · ' + money.format(sale.growerPayout) + '</span></label>');
-      buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="grower">Pay now</button>');
+      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="grower" aria-label="Select grower payout for ' + esc(sale.grower) + '"><span>Grower Â· ' + money.format(sale.growerPayout) + '</span></label>');
     }
     if (!sale.sellerPaidAt) {
-      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="seller" aria-label="Select seller payout for ' + esc(sale.seller) + '"><span>Seller · ' + money.format(sale.sellerPayout) + '</span></label>');
-      buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="seller">Pay now</button>');
+      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="seller" aria-label="Select seller payout for ' + esc(sale.seller) + '"><span>Seller Â· ' + money.format(sale.sellerPayout) + '</span></label>');
     }
-    if (!sale.growerPaidAt && !sale.sellerPaidAt) buttons.push('<button class="mini-button" data-settle="' + esc(sale.id) + '" data-role="both">Pay both</button>');
-    return '<div class="queue-actions"><div class="payout-options">' + checks.join("") + '</div><div class="payout-quick-actions">' + buttons.join("") + "</div></div>";
+    return '<div class="queue-actions"><div class="payout-options">' + checks.join("") + "</div></div>";
   }
   function supplyQueueActions(supply) {
     if (!state.adminCode || supply.paidAt) return "";
     const amount = num(supply.total || num(supply.quantity) * num(supply.unitCost));
-    return '<div class="queue-actions"><div class="payout-options"><label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(supply.id) + '" data-role="supply" aria-label="Select supply reimbursement for ' + esc(supply.buyer) + '"><span>Reimburse · ' + money.format(amount) + '</span></label></div><div class="payout-quick-actions"><button class="mini-button" data-settle="' + esc(supply.id) + '" data-role="supply">Pay now</button></div></div>';
+    return '<div class="queue-actions"><div class="payout-options"><label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(supply.id) + '" data-role="supply" aria-label="Select supply reimbursement for ' + esc(supply.buyer) + '"><span>Reimburse Â· ' + money.format(amount) + '</span></label></div></div>';
   }
   function selectedPayouts() {
     return $$('[data-payout-select]:checked').map(function (input) {
@@ -326,7 +322,7 @@
     const selectAll = $("[data-select-all-payouts]");
     if (button) {
       button.disabled = !selected.length || state.busy;
-      button.textContent = selected.length ? "Pay selected · " + money.format(total) : "Pay selected";
+      button.textContent = selected.length ? "Pay selected Â· " + money.format(total) : "Pay selected";
     }
     if (status) status.textContent = selected.length ? selected.length + " share" + (selected.length === 1 ? "" : "s") + " selected" : "Select any unpaid shares";
     if (selectAll) {
@@ -351,207 +347,7 @@
       statements.map(function (row) {
         return [esc(row.name), { value: money.format(row.earned), num: true }, { value: money.format(row.supplies), num: true }, { value: money.format(row.paid), num: true }, { value: "<strong>" + money.format(row.due) + "</strong>", num: true, raw: true }];
       })
-    ) : empty("Everyone is settled.");
-    const unsettled = state.sales.filter(function (sale) { return !sale.growerPaidAt || !sale.sellerPaidAt; }).sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
-    const unsettledSupplies = state.supplies.filter(function (supply) { return !supply.paidAt; }).sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
-    const hasUnsettled = unsettled.length || unsettledSupplies.length;
-    const payoutTools = hasUnsettled && state.adminCode ? '<div class="bulk-payout-bar"><label class="bulk-select"><input type="checkbox" data-select-all-payouts><span>Select all open shares and reimbursements</span></label><span class="selection-status" data-payout-selection>Select any unpaid payouts</span><button class="button primary" type="button" data-action="settle-selected" disabled>Pay selected</button></div>' : "";
-    $("#managerPayoutQueue").innerHTML = unsettled.length ? payoutTools + table(
-      ["Sale", "Grower share", "Seller share", "Settle"],
-      unsettled.map(function (sale) {
-        return [
-          "<strong>" + esc(sale.strain) + "</strong><small>" + esc(formatDate(sale.timestamp)) + " · " + quantity(sale.boxes, "box", "boxes") + "</small>",
-          sale.growerPaidAt ? '<span class="paid">Paid ' + esc(sale.grower) + "</span>" : esc(sale.grower) + " · " + money.format(sale.growerPayout),
-          sale.sellerPaidAt ? '<span class="paid">Paid ' + esc(sale.seller) + "</span>" : esc(sale.seller) + " · " + money.format(sale.sellerPayout),
-          { value: queueActions(sale), raw: true, num: true }
-        ];
-      })
-    ) : empty("No unsettled sales.");
-    if (unsettledSupplies.length) {
-      const supplyQueue = '<h3 class="queue-subheading">Supply reimbursements</h3>' + table(
-        ["Purchase", "Bought by", "Amount", "Settle"],
-        unsettledSupplies.map(function (supply) {
-          return [
-            "<strong>" + esc(supply.item) + "</strong><small>" + esc(formatDate(supply.timestamp)) + " · " + quantity(supply.quantity, "item", "items") + "</small>",
-            esc(supply.buyer),
-            { value: money.format(num(supply.total || num(supply.quantity) * num(supply.unitCost))), num: true },
-            { value: supplyQueueActions(supply), raw: true, num: true }
-          ];
-        })
-      );
-      $("#managerPayoutQueue").innerHTML = (unsettled.length ? $("#managerPayoutQueue").innerHTML : payoutTools) + supplyQueue;
-    } else if (!unsettled.length) {
-      $("#managerPayoutQueue").innerHTML = empty("No unpaid sales or supply reimbursements.");
-    }
-    updatePayoutSelection();
-  }
-  function renderLedger() {
-    const query = $("#ledgerSearch").value.trim().toLowerCase();
-    const type = $("#ledgerType").value;
-    const week = $("#ledgerWeek").value;
-    const rows = ledgerRows().filter(function (row) {
-      const text = [row.grower, row.seller, row.buyer, row.strain, row.item, row.reference, row.notes].join(" ").toLowerCase();
-      return (type === "all" || row.type === type) && (week === "all" || row.weekId === week) && (!query || text.includes(query));
-    });
-    $("#ledgerTable").innerHTML = rows.length ? table(
-      ["When", "Type", "Member / source", "Item / strain", "Quantity", "Value"],
-      rows.map(function (row) {
-        const grow = row.type === "grow";
-        const supply = row.type === "supply";
-        const trimmings = growTrimmings(row);
-        return [
-          esc(formatDate(row.timestamp)),
-          grow ? '<span class="paid">Grow</span>' : supply ? '<span class="supply-label">Supply</span>' : "Sale",
-          grow ? esc(row.grower) : supply ? esc(row.buyer) : "<strong>" + esc(row.seller) + "</strong><small>Stock: " + esc(row.grower) + "</small>",
-          esc(supply ? row.item : row.strain),
-          { value: grow ? quantity(trimmings, "trimming", "trimmings") : supply ? quantity(row.quantity, "item", "items") : quantity(row.boxes, "box", "boxes"), num: true },
-          { value: supply ? "−" + money.format(row.total) : grow ? money.format(trimmings / TRIMMINGS_PER_BOX * num(row.unitPrice)) : money.format(row.gross), num: true }
-        ];
-      })
-    ) : empty("No ledger records match that filter.");
-  }
-  function renderSettings() {
-    $("#memberList").innerHTML = state.members.map(function (name) {
-      return '<span class="chip">' + esc(name) + '<button type="button" aria-label="Remove ' + esc(name) + '" data-remove-member="' + esc(name) + '">×</button></span>';
-    }).join("");
-    $("#strainList").innerHTML = state.strains.map(function (strain) {
-      return '<div class="strain-item"><span>' + esc(strain.name) + "</span><strong>" + money.format(strain.price) + '</strong><button type="button" aria-label="Remove ' + esc(strain.name) + '" data-remove-strain="' + esc(strain.name) + '">×</button></div>';
-    }).join("");
-  }
-  function correctionRow(type, row) {
-    const isGrow = type === "grow";
-    const label = isGrow
-      ? esc(row.grower) + " · " + esc(row.strain)
-      : esc(row.seller) + " sold " + quantity(row.boxes, "box", "boxes");
-    const detail = isGrow
-      ? quantity(growTrimmings(row), "trimming", "trimmings") + " · " + formatDate(row.timestamp)
-      : esc(row.strain) + " · " + money.format(row.gross) + " · " + formatDate(row.timestamp);
-    const deleteLabel = isGrow ? "Delete grow" : "Delete sale + payout";
-    const payoutButtons = isGrow ? "" :
-      (row.growerPaidAt ? '<button class="mini-button" type="button" data-reopen-payout="' + esc(row.id) + '" data-role="grower">Undo grower paid</button>' : "") +
-      (row.sellerPaidAt ? '<button class="mini-button" type="button" data-reopen-payout="' + esc(row.id) + '" data-role="seller">Undo seller paid</button>' : "");
-    return '<div class="correction-row"><div><strong>' + label + "</strong><small>" + detail + '</small></div><div class="correction-actions"><button class="mini-button" type="button" data-edit-' + type + '="' + esc(row.id) + '">Edit</button>' + payoutButtons + '<button class="mini-button danger-mini" type="button" data-delete-' + type + '="' + esc(row.id) + '">' + deleteLabel + "</button></div></div>";
-  }
-  function supplyCorrectionRow(row) {
-    const amount = num(row.total || num(row.quantity) * num(row.unitCost));
-    const action = row.paidAt ? '<button class="mini-button" type="button" data-reopen-payout="' + esc(row.id) + '" data-role="supply">Undo reimbursement paid</button>' : '<span class="due">Owed</span>';
-    return '<div class="correction-row"><div><strong>' + esc(row.item) + "</strong><small>" + esc(row.buyer) + " · " + money.format(amount) + " · " + formatDate(row.timestamp) + '</small></div><div class="correction-actions">' + action + "</div></div>";
-  }
-  function renderCorrections() {
-    const grows = state.grows.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
-    const sales = state.sales.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
-    const supplies = state.supplies.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
-    $("#managerGrowRecords").innerHTML = grows.length ? '<div class="correction-list">' + grows.map(function (row) { return correctionRow("grow", row); }).join("") + "</div>" : empty("No grows to correct.");
-    $("#managerSaleRecords").innerHTML = sales.length ? '<div class="correction-list">' + sales.map(function (row) { return correctionRow("sale", row); }).join("") + "</div>" : empty("No sales to correct.");
-    $("#managerSupplyRecords").innerHTML = supplies.length ? '<div class="correction-list">' + supplies.map(supplyCorrectionRow).join("") + "</div>" : empty("No supply reimbursements yet.");
-    const history = state.corrections.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 10);
-    $("#managerCorrectionHistory").innerHTML = history.length ? '<div class="history-list">' + history.map(function (row) {
-      const actionName = String(row.action || "edit").toLowerCase();
-      const action = actionName === "delete" ? "deleted" : actionName === "reopen" ? "reopened" : "corrected";
-      return '<div class="history-item"><strong>' + esc(String(row.recordType || "record").toUpperCase()) + " " + action + "</strong><small>" + esc(row.reason) + " · " + esc(formatDate(row.timestamp)) + "</small></div>";
-    }).join("") + "</div>" : empty("No corrections have been made yet.");
-  }
-  function setCorrectionGroup(group, active) {
-    group.hidden = !active;
-    $$("input, select, textarea", group).forEach(function (control) { control.disabled = !active; });
-  }
-  function setRecordSelectValue(select, value) {
-    const exists = Array.from(select.options).some(function (option) { return option.value === String(value); });
-    if (!exists && value) select.add(new Option(String(value) + " · archived", String(value)));
-    select.value = value;
-  }
-  function openCorrection(type, id) {
-    if (!state.adminCode) { state.pendingView = "manager"; openAdmin(); return; }
-    const isGrow = type === "grow";
-    const record = (isGrow ? state.grows : state.sales).find(function (row) { return String(row.id) === String(id); });
-    if (!record) { toast("That record could not be found."); return; }
-    const dialog = $("[data-correction-dialog]");
-    const form = $("#correctionForm");
-    form.reset();
-    form.recordType.value = type;
-    form.recordId.value = id;
-    setCorrectionGroup($("[data-correction-grow]"), isGrow);
-    setCorrectionGroup($("[data-correction-sale]"), !isGrow);
-    $("[data-correction-title]").textContent = isGrow ? "Correct grow entry" : "Correct sale";
-    if (isGrow) {
-      form.growDate.value = dateInputValue(record.timestamp);
-      setRecordSelectValue(form.growGrower, record.grower);
-      setRecordSelectValue(form.growStrain, record.strain);
-      form.growTrimmings.value = growTrimmings(record);
-      form.growPrice.value = num(record.unitPrice);
-      form.growNotes.value = record.notes || "";
-    } else {
-      form.saleDate.value = dateInputValue(record.timestamp);
-      setRecordSelectValue(form.saleSeller, record.seller);
-      setRecordSelectValue(form.saleGrower, record.grower);
-      setRecordSelectValue(form.saleStrain, record.strain);
-      form.saleBoxes.value = num(record.boxes);
-      form.salePrice.value = num(record.unitPrice);
-      form.saleReference.value = record.reference || "";
-    }
-    if (!dialog.open) dialog.showModal();
-  }
-  function closeCorrection() {
-    const dialog = $("[data-correction-dialog]");
-    if (dialog.open) dialog.close();
-  }
-  function renderInventoryStrains() {
-    const grower = $("[data-inventory-growers]").value;
-    const rows = inventoryRows().filter(function (row) { return row.grower === grower && row.boxes > 0; });
-    const select = $("[data-inventory-strains]");
-    const current = select.value;
-    select.innerHTML = '<option value="">Choose available stock</option>' + rows.map(function (row) {
-      return '<option value="' + esc(row.strain) + '" data-stock="' + row.boxes + '" data-trimmings="' + row.trimmings + '" data-price="' + row.price + '">' + esc(row.strain) + " · " + quantity(row.boxes, "box", "boxes") + "</option>";
-    }).join("");
-    if (rows.some(function (row) { return row.strain === current; })) select.value = current;
-    updateStockHint();
-  }
-  function updateStockHint() {
-    const option = $("[data-inventory-strains]").selectedOptions[0];
-    const stock = num(option && option.dataset.stock);
-    const trimmings = num(option && option.dataset.trimmings);
-    $("[data-available-stock]").textContent = stock ? quantity(stock, "box", "boxes") + " available; " + quantity(trimmings, "trimming", "trimmings") + " remain in this lot." : "Choose a grower and strain to see stock.";
-  }
-  function renderSelects() {
-    const memberOptions = state.members.map(function (name) { return '<option value="' + esc(name) + '">' + esc(name) + "</option>"; }).join("");
-    $$("[data-members]").forEach(function (select) {
-      const current = select.value;
-      select.innerHTML = '<option value="">Choose a member</option>' + memberOptions;
-      if (state.members.includes(current)) select.value = current;
-    });
-    const strainOptions = state.strains.map(function (strain) { return '<option value="' + esc(strain.name) + '" data-price="' + num(strain.price) + '">' + esc(strain.name) + "</option>"; }).join("");
-    $$("[data-strains]").forEach(function (select) {
-      const current = select.value;
-      select.innerHTML = '<option value="">Choose a strain</option>' + strainOptions;
-      if (state.strains.some(function (strain) { return strain.name === current; })) select.value = current;
-    });
-    const growers = Array.from(new Set(inventoryRows().filter(function (row) { return row.boxes > 0; }).map(function (row) { return row.grower; }))).sort();
-    const growerSelect = $("[data-inventory-growers]");
-    const current = growerSelect.value;
-    growerSelect.innerHTML = '<option value="">Choose a grower</option>' + growers.map(function (name) { return '<option value="' + esc(name) + '">' + esc(name) + "</option>"; }).join("");
-    if (growers.includes(current)) growerSelect.value = current;
-    renderInventoryStrains();
-  }
-  function renderAll() {
-    renderDashboard();
-    renderSupplies();
-    renderPayouts();
-    renderLedger();
-    renderSettings();
-    renderCorrections();
-    renderSelects();
-    renderWeeks();
-    $$("[data-sheet-link]").forEach(function (link) { link.href = config.SHEET_URL; });
-  }
-  function renderWeeks() {
-    $("[data-active-week]").textContent = state.activeWeek ? state.activeWeek.label : "No active week";
-    $("[data-manager-week]").textContent = state.activeWeek ? state.activeWeek.label : "No active week";
-    const currentSales = state.sales.filter(function (sale) { return state.activeWeek && sale.weekId === state.activeWeek.id; });
-    $("[data-week-summary]").textContent = quantity(currentSales.length, "sale", "sales") + " this week · stock, supply costs, and balances roll forward";
-    const select = $("#ledgerWeek");
-    const current = select.value;
-    select.innerHTML = '<option value="all">All weeks</option>' + state.weeks.slice().reverse().map(function (week) {
-      return '<option value="' + esc(week.id) + '">' + esc(week.label) + (week.status === "active" ? " · active" : "") + "</option>";
+    ) : empty("Everyone is settled.")…3836 tokens truncated…alue="' + esc(week.id) + '">' + esc(week.label) + (week.status === "active" ? " Â· active" : "") + "</option>";
     }).join("");
     if (state.weeks.some(function (week) { return week.id === current; })) select.value = current;
   }
@@ -578,7 +374,7 @@
     if (state.busy) return false;
     state.busy = true;
     $$("button[type=submit]").forEach(function (button) { button.disabled = true; });
-    setSync("loading", "Saving to shared sheet…");
+    setSync("loading", "Saving to shared sheetâ€¦");
     try {
       const result = await operation();
       applyData(result.data);
@@ -606,7 +402,7 @@
     $("[data-preview-gross]").textContent = money.format(split.gross);
     $("[data-preview-grower]").textContent = money.format(split.grower);
     $("[data-preview-seller]").textContent = money.format(split.seller);
-    $("[data-preview-supplies]").textContent = "−" + money.format(split.supplyDeduction);
+    $("[data-preview-supplies]").textContent = "âˆ’" + money.format(split.supplyDeduction);
     $("[data-preview-gang]").textContent = money.format(split.gang);
   }
   function updateSupplyPreview() {
@@ -717,6 +513,15 @@
       if (ok) closeCorrection();
       return;
     }
+    if (data.recordType === "supply") {
+      const quantity = num(data.supplyQuantity);
+      if (!Number.isInteger(quantity) || quantity < 1) { toast("Supply quantity must be a whole number."); return; }
+      if (num(data.supplyUnitCost) < 0) { toast("Supply cost cannot be negative."); return; }
+      if (!confirm("Save this supply correction? Changing who paid or the amount will reopen its reimbursement.")) return;
+      const ok = await mutate("updateSupply", { id: data.recordId, reason: data.reason, record: { timestamp: data.supplyDate, buyer: data.supplyBuyer, item: data.supplyItem, quantity: quantity, unitCost: num(data.supplyUnitCost), notes: data.supplyNotes } }, "Supply correction saved to the audit history.");
+      if (ok) closeCorrection();
+      return;
+    }
     const boxes = num(data.saleBoxes);
     if (!Number.isInteger(boxes) || boxes < 1) { toast("Sales must use whole boxes."); return; }
     if (!confirm("Save this sale correction? If the people, product, quantity, or price changed, both payouts will reopen for manager confirmation.")) return;
@@ -775,6 +580,8 @@
     if (editGrow) openCorrection("grow", editGrow.dataset.editGrow);
     const editSale = event.target.closest("[data-edit-sale]");
     if (editSale) openCorrection("sale", editSale.dataset.editSale);
+    const editSupply = event.target.closest("[data-edit-supply]");
+    if (editSupply) openCorrection("supply", editSupply.dataset.editSupply);
     const deleteGrow = event.target.closest("[data-delete-grow]");
     if (deleteGrow && state.adminCode) {
       const row = state.grows.find(function (grow) { return String(grow.id) === String(deleteGrow.dataset.deleteGrow); });
@@ -789,6 +596,14 @@
       const reason = prompt("Why should this sale and payout be deleted? The reason will stay in the audit history.");
       if (reason && confirm("Delete " + (row ? row.seller + "'s " + money.format(row.gross) + " sale and its payout" : "this sale and payout") + "? This removes it from totals and returns its boxes to inventory.")) {
         await mutate("deleteSale", { id: deleteSale.dataset.deleteSale, reason: reason }, "Mistaken sale and payout removed. Inventory and totals were restored.");
+      }
+    }
+    const deleteSupply = event.target.closest("[data-delete-supply]");
+    if (deleteSupply && state.adminCode) {
+      const row = state.supplies.find(function (supply) { return String(supply.id) === String(deleteSupply.dataset.deleteSupply); });
+      const reason = prompt("Why should this supply purchase be deleted? The reason will stay in the audit history.");
+      if (reason && confirm("Delete " + (row ? row.item + " for " + money.format(num(row.total || num(row.quantity) * num(row.unitCost))) : "this supply purchase") + "? It will stop affecting supply recovery and reimbursements.")) {
+        await mutate("deleteSupply", { id: deleteSupply.dataset.deleteSupply, reason: reason }, "Mistaken supply purchase removed from active totals and reimbursement balances.");
       }
     }
     const reopenPayout = event.target.closest("[data-reopen-payout]");
@@ -838,3 +653,4 @@
   if (state.accessCode) loadData().catch(function () {});
   else openAccess(config.API_URL ? "" : "The sheet connection is being finished. The interface is ready.");
 })();
+
