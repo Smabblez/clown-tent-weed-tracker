@@ -8,10 +8,11 @@ const SHEET_NAMES = Object.freeze({
 });
 
 const TRIMMINGS_PER_BOX = 15;
+const PAYOUT_RATES = Object.freeze({ grower: 0.70, gang: 0.15, seller: 0.15 });
 
 const HEADERS = Object.freeze({
   grows: ["id", "timestamp", "grower", "strain", "trimmings", "unitPrice", "notes", "createdAt", "weekId", "deletedAt", "deleteReason"],
-  supplies: ["id", "timestamp", "buyer", "item", "quantity", "unitCost", "total", "notes", "createdAt", "weekId"],
+  supplies: ["id", "timestamp", "buyer", "item", "quantity", "unitCost", "total", "notes", "paidAt", "createdAt", "weekId"],
   sales: ["id", "timestamp", "seller", "grower", "strain", "boxes", "unitPrice", "gross", "supplyDeduction", "growerPayout", "gangPayout", "sellerPayout", "reference", "growerPaidAt", "sellerPaidAt", "createdAt", "weekId", "deletedAt", "deleteReason"],
   corrections: ["id", "timestamp", "recordType", "recordId", "action", "beforeJson", "afterJson", "reason", "createdAt"],
   config: ["kind", "name", "price", "active"],
@@ -28,7 +29,7 @@ function doPost(e) {
     assertAccess_(body.accessCode);
     const action = String(body.action || "");
     let result;
-    if (["verifyAdmin", "updateGrow", "updateSale", "deleteGrow", "deleteSale", "settleSale", "settlePayouts", "reopenPayout", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
+    if (["verifyAdmin", "updateGrow", "updateSale", "deleteGrow", "deleteSale", "settleSale", "settleSupply", "settlePayouts", "reopenPayout", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
     if (action === "bootstrap") result = bootstrap_();
     else if (action === "verifyAdmin") result = { authorized: true };
     else if (action === "addGrow") result = addGrow_(body.record || {});
@@ -39,6 +40,7 @@ function doPost(e) {
     else if (action === "deleteGrow") result = deleteGrow_(body.id, body.reason);
     else if (action === "deleteSale") result = deleteSale_(body.id, body.reason);
     else if (action === "settleSale") result = settleSale_(body.id, body.role);
+    else if (action === "settleSupply") result = settleSupply_(body.id);
     else if (action === "settlePayouts") result = settlePayouts_(body.items);
     else if (action === "reopenPayout") result = reopenPayout_(body.id, body.role, body.reason);
     else if (action === "rolloverWeek") result = rolloverWeek_(body.label);
@@ -119,11 +121,27 @@ function addSupply_(record) {
       unitCost: unitCost,
       total: round_(quantity * unitCost),
       notes: clean_(record.notes, 300),
+      paidAt: "",
       createdAt: new Date().toISOString(),
       weekId: week.id
     });
   });
   return bootstrap_();
+}
+
+function calculateSaleAmounts_(boxes, unitPrice, supplyBalance) {
+  const gross = round_(boxes * unitPrice);
+  const growerPayout = round_(gross * PAYOUT_RATES.grower);
+  const sellerPayout = round_(gross * PAYOUT_RATES.seller);
+  const gangShare = round_(gross - growerPayout - sellerPayout);
+  const supplyDeduction = Math.min(gangShare, Math.max(0, round_(supplyBalance)));
+  return {
+    gross: gross,
+    supplyDeduction: supplyDeduction,
+    growerPayout: growerPayout,
+    gangPayout: round_(gangShare - supplyDeduction),
+    sellerPayout: sellerPayout
+  };
 }
 
 function addSale_(record) {
@@ -136,12 +154,7 @@ function addSale_(record) {
   withLock_(function () {
     const available = availableBoxes_(record.grower, record.strain);
     if (boxes > available + 0.0001) throw new Error("Only " + available + " boxes remain for that grower and strain.");
-    const gross = round_(boxes * unitPrice);
-    const growerPayout = round_(gross * 0.70);
-    const sellerPayout = round_(gross * 0.15);
-    const gangShare = round_(gross - growerPayout - sellerPayout);
-    const supplyDeduction = Math.min(gangShare, outstandingSupplies_());
-    const gangPayout = round_(gangShare - supplyDeduction);
+    const amounts = calculateSaleAmounts_(boxes, unitPrice, outstandingSupplies_());
     appendObject_(SHEET_NAMES.sales, HEADERS.sales, {
       id: Utilities.getUuid(),
       timestamp: safeDate_(record.timestamp),
@@ -150,11 +163,11 @@ function addSale_(record) {
       strain: clean_(record.strain, 80),
       boxes: boxes,
       unitPrice: unitPrice,
-      gross: gross,
-      supplyDeduction: supplyDeduction,
-      growerPayout: growerPayout,
-      gangPayout: gangPayout,
-      sellerPayout: sellerPayout,
+      gross: amounts.gross,
+      supplyDeduction: amounts.supplyDeduction,
+      growerPayout: amounts.growerPayout,
+      gangPayout: amounts.gangPayout,
+      sellerPayout: amounts.sellerPayout,
       reference: clean_(record.reference, 120),
       growerPaidAt: "",
       sellerPaidAt: "",
@@ -203,12 +216,8 @@ function updateSale_(id, record, reason) {
     const located = findObjectRow_(SHEET_NAMES.sales, id);
     const before = normalizeSale_(located.object);
     if (before.deletedAt) throw new Error("That sale has already been deleted.");
-    const gross = round_(boxes * unitPrice);
-    const growerPayout = round_(gross * 0.70);
-    const sellerPayout = round_(gross * 0.15);
-    const gangShare = round_(gross - growerPayout - sellerPayout);
     const suppliesWithoutThisSale = outstandingSuppliesExcludingSale_(id);
-    const supplyDeduction = Math.min(gangShare, suppliesWithoutThisSale);
+    const amounts = calculateSaleAmounts_(boxes, unitPrice, suppliesWithoutThisSale);
     const affectsPayout = String(before.seller) !== clean_(record.seller, 60) ||
       String(before.grower) !== clean_(record.grower, 60) ||
       String(before.strain) !== clean_(record.strain, 80) ||
@@ -220,11 +229,11 @@ function updateSale_(id, record, reason) {
       strain: clean_(record.strain, 80),
       boxes: boxes,
       unitPrice: unitPrice,
-      gross: gross,
-      supplyDeduction: supplyDeduction,
-      growerPayout: growerPayout,
-      gangPayout: round_(gangShare - supplyDeduction),
-      sellerPayout: sellerPayout,
+      gross: amounts.gross,
+      supplyDeduction: amounts.supplyDeduction,
+      growerPayout: amounts.growerPayout,
+      gangPayout: amounts.gangPayout,
+      sellerPayout: amounts.sellerPayout,
       reference: clean_(record.reference, 120),
       growerPaidAt: affectsPayout ? "" : before.growerPaidAt,
       sellerPaidAt: affectsPayout ? "" : before.sellerPaidAt
@@ -287,6 +296,23 @@ function settleSale_(id, role) {
   return bootstrap_();
 }
 
+function settleSupply_(id) {
+  if (!id) throw new Error("Invalid supply reimbursement.");
+  withLock_(function () {
+    ensureSheets_();
+    const sheet = sheet_(SHEET_NAMES.supplies);
+    const values = sheet.getDataRange().getValues();
+    const headers = values[0].map(String);
+    const idIndex = headers.indexOf("id");
+    const paidIndex = headers.indexOf("paidAt");
+    if (paidIndex < 0) throw new Error("The supply reimbursement column is missing from the sheet.");
+    const rowIndex = values.findIndex(function (row, index) { return index > 0 && String(row[idIndex]) === String(id); });
+    if (rowIndex < 1) throw new Error("Supply purchase not found.");
+    if (!values[rowIndex][paidIndex]) sheet.getRange(rowIndex + 1, paidIndex + 1).setValue(new Date().toISOString());
+  });
+  return bootstrap_();
+}
+
 function settlePayouts_(items) {
   if (!Array.isArray(items) || !items.length) throw new Error("Select at least one unpaid payout.");
   if (items.length > 500) throw new Error("Select 500 payouts or fewer at a time.");
@@ -295,7 +321,7 @@ function settlePayouts_(items) {
   items.forEach(function (item) {
     var id = clean_(item && item.id, 120);
     var role = clean_(item && item.role, 20);
-    if (!id || ["grower", "seller"].indexOf(role) === -1) throw new Error("Invalid payout selection.");
+    if (!id || ["grower", "seller", "supply"].indexOf(role) === -1) throw new Error("Invalid payout selection.");
     var key = id + "::" + role;
     if (!seen[key]) {
       seen[key] = true;
@@ -303,37 +329,62 @@ function settlePayouts_(items) {
     }
   });
   withLock_(function () {
-    var sheet = sheet_(SHEET_NAMES.sales);
-    var values = sheet.getDataRange().getValues();
-    var headers = values[0].map(String);
-    var idIndex = headers.indexOf("id");
-    var growerIndex = headers.indexOf("growerPaidAt");
-    var sellerIndex = headers.indexOf("sellerPaidAt");
-    var deletedIndex = headers.indexOf("deletedAt");
-    var rows = {};
-    values.slice(1).forEach(function (row, offset) {
-      rows[String(row[idIndex])] = { row: row, rowIndex: offset + 2 };
+    ensureSheets_();
+    var salesSheet = sheet_(SHEET_NAMES.sales);
+    var suppliesSheet = sheet_(SHEET_NAMES.supplies);
+    var salesValues = salesSheet.getDataRange().getValues();
+    var supplyValues = suppliesSheet.getDataRange().getValues();
+    var salesHeaders = salesValues[0].map(String);
+    var supplyHeaders = supplyValues[0].map(String);
+    var saleIdIndex = salesHeaders.indexOf("id");
+    var growerIndex = salesHeaders.indexOf("growerPaidAt");
+    var sellerIndex = salesHeaders.indexOf("sellerPaidAt");
+    var deletedIndex = salesHeaders.indexOf("deletedAt");
+    var supplyIdIndex = supplyHeaders.indexOf("id");
+    var supplyPaidIndex = supplyHeaders.indexOf("paidAt");
+    if (supplyPaidIndex < 0) throw new Error("The supply reimbursement column is missing from the sheet.");
+    var sales = {};
+    var supplies = {};
+    salesValues.slice(1).forEach(function (row, offset) {
+      sales[String(row[saleIdIndex])] = { row: row, rowIndex: offset + 2 };
+    });
+    supplyValues.slice(1).forEach(function (row, offset) {
+      supplies[String(row[supplyIdIndex])] = { row: row, rowIndex: offset + 2 };
     });
     var updates = [];
     normalized.forEach(function (item) {
-      var located = rows[item.id];
-      if (!located) throw new Error("One selected sale no longer exists. Refresh and try again.");
-      if (deletedIndex >= 0 && located.row[deletedIndex]) throw new Error("Deleted sales cannot be settled.");
+      if (item.role === "supply") {
+        var supply = supplies[item.id];
+        if (!supply) throw new Error("One selected supply purchase no longer exists. Refresh and try again.");
+        if (!supply.row[supplyPaidIndex]) updates.push({ sheet: suppliesSheet, rowIndex: supply.rowIndex, column: supplyPaidIndex + 1 });
+        return;
+      }
+      var sale = sales[item.id];
+      if (!sale) throw new Error("One selected sale no longer exists. Refresh and try again.");
+      if (deletedIndex >= 0 && sale.row[deletedIndex]) throw new Error("Deleted sales cannot be settled.");
       var index = item.role === "grower" ? growerIndex : sellerIndex;
       if (index < 0) throw new Error("The payout columns are missing from the sales sheet.");
-      if (!located.row[index]) updates.push({ rowIndex: located.rowIndex, column: index + 1 });
+      if (!sale.row[index]) updates.push({ sheet: salesSheet, rowIndex: sale.rowIndex, column: index + 1 });
     });
     var stamp = new Date().toISOString();
-    updates.forEach(function (update) { sheet.getRange(update.rowIndex, update.column).setValue(stamp); });
+    updates.forEach(function (update) { update.sheet.getRange(update.rowIndex, update.column).setValue(stamp); });
   });
   return bootstrap_();
 }
 
 function reopenPayout_(id, role, reason) {
-  if (!id || ["grower", "seller", "both"].indexOf(role) === -1) throw new Error("Invalid payout correction.");
+  if (!id || ["grower", "seller", "supply", "both"].indexOf(role) === -1) throw new Error("Invalid payout correction.");
   reason = clean_(reason, 240);
   if (!reason) throw new Error("Add a short reason for reopening the payout.");
   withLock_(function () {
+    if (role === "supply") {
+      const locatedSupply = findObjectRow_(SHEET_NAMES.supplies, id);
+      const beforeSupply = normalizeSupply_(locatedSupply.object);
+      const afterSupply = Object.assign({}, beforeSupply, { paidAt: "" });
+      writeObjectRow_(SHEET_NAMES.supplies, locatedSupply.rowNumber, afterSupply);
+      logCorrection_("supply", id, "reopen", beforeSupply, afterSupply, reason);
+      return;
+    }
     const located = findObjectRow_(SHEET_NAMES.sales, id);
     const before = normalizeSale_(located.object);
     if (before.deletedAt) throw new Error("Deleted sales cannot have payouts reopened.");
