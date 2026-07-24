@@ -39,11 +39,11 @@ Member statements keep three separate totals: earned, paid out, and remaining du
 
 The public site contains no gang or manager password. Both codes are stored only in the Apps Script project's private Script Properties and checked on the server. Payout settlement buttons exist only inside the unlocked Manager page; manager authorization is also enforced by the backend. Everyone with normal tracker access can still view payout balances and history.
 
-Managers can correct or delete existing grow and sale entries from the site. They can also reopen an individual grower or seller payout that was marked paid by mistake without deleting the sale. Deleting a sale removes its payout and restores its boxes to inventory. Deleting a grow is blocked when its stock is needed by recorded sales. Records are soft-deleted from live totals rather than erased from the sheet, and every edit, payout reopen, or deletion saves its before/after values and reason in Web_Corrections. Any sale correction that changes a person, strain, box count, or price reopens both payout statuses.
+Managers can correct or delete existing grow, supply, and sale entries from the site. They can also reopen an individual grower, seller, or supply reimbursement that was marked paid by mistake. Deleting a sale removes its payout and restores its boxes to inventory; deleting a supply removes its reimbursement and stops it from affecting future supply recovery. Deleting a grow is blocked when its stock is needed by recorded sales. Records are soft-deleted from live totals rather than erased from the sheet, and every edit, payout reopen, or deletion saves its before/after values and reason in Web_Corrections. Any sale correction that changes a person, strain, box count, or price reopens both payout statuses; changing a supply buyer, quantity, or cost reopens its reimbursement.
 
-The Manager payout queue also supports selecting multiple unpaid grower or seller shares and supply reimbursements, then marking them paid in one confirmed batch. A supply purchase has two separate effects: it increases the gang's unrecovered supply balance, and it creates a reimbursement payable to the member recorded in `buyer`. The batch action only updates the selected settlement timestamps under the existing manager authorization and document lock, then returns a fresh full tracker snapshot; it does not rewrite sale, inventory, member, price, or correction data.
+The Manager payout queue supports selecting multiple unpaid grower or seller shares and supply reimbursements, then marking them paid in one confirmed batch. A supply purchase has two separate effects: it increases the gang's unrecovered supply balance, and it creates a reimbursement payable to the member recorded in `buyer`. The batch action only updates the selected settlement timestamps under the existing manager authorization and document lock, then returns a fresh full tracker snapshot; it does not rewrite sale, inventory, member, price, or correction data.
 
-For currently deployed backends, sale batch settlement remains compatible by sending the existing `settleSale` operation once per selected sale share. Supply reimbursement controls require the updated Apps Script version because the backend must recognize `settleSupply` and the new `paidAt` column. Once that version is deployed, the client can use the server-side `settlePayouts` action without changing the manager workflow or existing source records.
+The frontend submits one server-side `settlePayouts` request for the selected sale shares and supply reimbursements. Individual payout buttons are intentionally omitted from the queue; selecting one checkbox and pressing `Pay selected` handles a one-off payment without a second interaction pattern.
 
 ## Setup and validation
 
@@ -53,3 +53,4 @@ Run locally with a static server, then validate with:
 
     node scripts/validate.mjs
     node --check app.js
+
