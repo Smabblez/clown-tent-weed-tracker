@@ -754,13 +754,9 @@
     }
     if (action === "settle-selected" && state.adminCode) {
       const items = selectedPayouts();
-      if (items.length && confirm("Mark " + items.length + " selected payout share" + (items.length === 1 ? "" : "s") + " as paid? The sale records will stay unchanged.")) {
-        await mutateWith(async function () {
-          let result;
-          for (const item of items) {
-            result = await request(item.role === "supply" ? "settleSupply" : "settleSale", { id: item.id, role: item.role });
-          }
-          return result;
+      if (items.length && confirm("Mark " + items.length + " selected payout" + (items.length === 1 ? "" : "s") + " as paid? The ledger rows will stay unchanged.")) {
+        await mutateWith(function () {
+          return request("settlePayouts", { items: items });
         }, "Selected payouts marked paid.");
       }
     }
