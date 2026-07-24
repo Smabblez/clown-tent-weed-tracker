@@ -521,12 +521,15 @@
     window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
   async function mutate(action, payload, successMessage) {
+    return mutateWith(function () { return request(action, payload); }, successMessage);
+  }
+  async function mutateWith(operation, successMessage) {
     if (state.busy) return false;
     state.busy = true;
     $$("button[type=submit]").forEach(function (button) { button.disabled = true; });
     setSync("loading", "Saving to shared sheet…");
     try {
-      const result = await request(action, payload);
+      const result = await operation();
       applyData(result.data);
       setSync("synced", "Shared sheet synced");
       renderAll();
@@ -701,7 +704,13 @@
     if (action === "settle-selected" && state.adminCode) {
       const items = selectedPayouts();
       if (items.length && confirm("Mark " + items.length + " selected payout share" + (items.length === 1 ? "" : "s") + " as paid? The sale records will stay unchanged.")) {
-        await mutate("settlePayouts", { items: items }, "Selected payouts marked paid.");
+        await mutateWith(async function () {
+          let result;
+          for (const item of items) {
+            result = await request("settleSale", { id: item.id, role: item.role });
+          }
+          return result;
+        }, "Selected payouts marked paid.");
       }
     }
     const selectAllPayouts = event.target.closest("[data-select-all-payouts]");

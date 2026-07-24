@@ -43,6 +43,8 @@ Managers can correct or delete existing grow and sale entries from the site. The
 
 The Manager payout queue also supports selecting multiple unpaid grower or seller shares and marking them paid in one confirmed batch. The batch action only updates the selected settlement timestamps under the existing manager authorization and document lock, then returns a fresh full tracker snapshot; it does not rewrite sale, inventory, member, price, or correction data.
 
+The frontend remains compatible with the currently deployed backend by sending the same existing `settleSale` operation once per selected share. After the updated Apps Script is deployed, the client can switch to the server-side `settlePayouts` action without changing the manager workflow or the sheet schema.
+
 ## Setup and validation
 
 Follow apps-script/README.md for the one-time backend deployment, then put the deployed /exec URL in config.js.
