@@ -86,7 +86,7 @@
   async function loadData(showNotice) {
     if (state.busy) return;
     state.busy = true;
-    setSync("loading", "Syncing shared sheetâ€¦");
+    setSync("loading", "Syncing shared sheet...");
     try {
       const result = await request("bootstrap");
       applyData(result.data);
@@ -243,8 +243,8 @@
       : supply
         ? esc(row.buyer) + " bought " + quantity(amount, "item", "items") + " of " + esc(row.item)
         : esc(row.seller) + " sold " + quantity(amount, "box", "boxes") + " of " + esc(row.strain);
-    const badge = grow ? "+" : supply ? "âˆ’" : "$";
-    const value = grow ? "+" + number.format(amount) : supply ? "âˆ’" + money.format(row.total) : money.format(row.gross);
+    const badge = grow ? "+" : supply ? "-" : "$";
+    const value = grow ? "+" + number.format(amount) : supply ? "-" + money.format(row.total) : money.format(row.gross);
     return '<div class="activity ' + row.type + '"><span class="activity-badge">' + badge + "</span><div><strong>" + text + "</strong><small>" + esc(formatDate(row.timestamp)) + "</small></div><b>" + value + "</b></div>";
   }
   function renderDashboard() {
@@ -291,17 +291,17 @@
     if (!state.adminCode) return "";
     const checks = [];
     if (!sale.growerPaidAt) {
-      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="grower" aria-label="Select grower payout for ' + esc(sale.grower) + '"><span>Grower Â· ' + money.format(sale.growerPayout) + '</span></label>');
+      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="grower" aria-label="Select grower payout for ' + esc(sale.grower) + '"><span>Grower - ' + money.format(sale.growerPayout) + '</span></label>');
     }
     if (!sale.sellerPaidAt) {
-      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="seller" aria-label="Select seller payout for ' + esc(sale.seller) + '"><span>Seller Â· ' + money.format(sale.sellerPayout) + '</span></label>');
+      checks.push('<label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(sale.id) + '" data-role="seller" aria-label="Select seller payout for ' + esc(sale.seller) + '"><span>Seller - ' + money.format(sale.sellerPayout) + '</span></label>');
     }
     return '<div class="queue-actions"><div class="payout-options">' + checks.join("") + "</div></div>";
   }
   function supplyQueueActions(supply) {
     if (!state.adminCode || supply.paidAt) return "";
     const amount = num(supply.total || num(supply.quantity) * num(supply.unitCost));
-    return '<div class="queue-actions"><div class="payout-options"><label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(supply.id) + '" data-role="supply" aria-label="Select supply reimbursement for ' + esc(supply.buyer) + '"><span>Reimburse Â· ' + money.format(amount) + '</span></label></div></div>';
+    return '<div class="queue-actions"><div class="payout-options"><label class="payout-option"><input type="checkbox" data-payout-select data-id="' + esc(supply.id) + '" data-role="supply" aria-label="Select supply reimbursement for ' + esc(supply.buyer) + '"><span>Reimburse - ' + money.format(amount) + '</span></label></div></div>';
   }
   function selectedPayouts() {
     return $$('[data-payout-select]:checked').map(function (input) {
@@ -322,7 +322,7 @@
     const selectAll = $("[data-select-all-payouts]");
     if (button) {
       button.disabled = !selected.length || state.busy;
-      button.textContent = selected.length ? "Pay selected Â· " + money.format(total) : "Pay selected";
+      button.textContent = selected.length ? "Pay selected - " + money.format(total) : "Pay selected";
     }
     if (status) status.textContent = selected.length ? selected.length + " share" + (selected.length === 1 ? "" : "s") + " selected" : "Select any unpaid shares";
     if (selectAll) {
@@ -356,9 +356,9 @@
       ["Sale", "Grower share", "Seller share", "Settle"],
       unsettled.map(function (sale) {
         return [
-          "<strong>" + esc(sale.strain) + "</strong><small>" + esc(formatDate(sale.timestamp)) + " Â· " + quantity(sale.boxes, "box", "boxes") + "</small>",
-          sale.growerPaidAt ? '<span class="paid">Paid ' + esc(sale.grower) + "</span>" : esc(sale.grower) + " Â· " + money.format(sale.growerPayout),
-          sale.sellerPaidAt ? '<span class="paid">Paid ' + esc(sale.seller) + "</span>" : esc(sale.seller) + " Â· " + money.format(sale.sellerPayout),
+          "<strong>" + esc(sale.strain) + "</strong><small>" + esc(formatDate(sale.timestamp)) + " - " + quantity(sale.boxes, "box", "boxes") + "</small>",
+          sale.growerPaidAt ? '<span class="paid">Paid ' + esc(sale.grower) + "</span>" : esc(sale.grower) + " - " + money.format(sale.growerPayout),
+          sale.sellerPaidAt ? '<span class="paid">Paid ' + esc(sale.seller) + "</span>" : esc(sale.seller) + " - " + money.format(sale.sellerPayout),
           { value: queueActions(sale), raw: true, num: true }
         ];
       })
@@ -368,7 +368,7 @@
         ["Purchase", "Bought by", "Amount", "Settle"],
         unsettledSupplies.map(function (supply) {
           return [
-            "<strong>" + esc(supply.item) + "</strong><small>" + esc(formatDate(supply.timestamp)) + " Â· " + quantity(supply.quantity, "item", "items") + "</small>",
+            "<strong>" + esc(supply.item) + "</strong><small>" + esc(formatDate(supply.timestamp)) + " - " + quantity(supply.quantity, "item", "items") + "</small>",
             esc(supply.buyer),
             { value: money.format(num(supply.total || num(supply.quantity) * num(supply.unitCost))), num: true },
             { value: supplyQueueActions(supply), raw: true, num: true }
@@ -401,27 +401,27 @@
           grow ? esc(row.grower) : supply ? esc(row.buyer) : "<strong>" + esc(row.seller) + "</strong><small>Stock: " + esc(row.grower) + "</small>",
           esc(supply ? row.item : row.strain),
           { value: grow ? quantity(trimmings, "trimming", "trimmings") : supply ? quantity(row.quantity, "item", "items") : quantity(row.boxes, "box", "boxes"), num: true },
-          { value: supply ? "âˆ’" + money.format(row.total) : grow ? money.format(trimmings / TRIMMINGS_PER_BOX * num(row.unitPrice)) : money.format(row.gross), num: true }
+          { value: supply ? "-" + money.format(row.total) : grow ? money.format(trimmings / TRIMMINGS_PER_BOX * num(row.unitPrice)) : money.format(row.gross), num: true }
         ];
       })
     ) : empty("No ledger records match that filter.");
   }
   function renderSettings() {
     $("#memberList").innerHTML = state.members.map(function (name) {
-      return '<span class="chip">' + esc(name) + '<button type="button" aria-label="Remove ' + esc(name) + '" data-remove-member="' + esc(name) + '">Ã—</button></span>';
+      return '<span class="chip">' + esc(name) + '<button type="button" aria-label="Remove ' + esc(name) + '" data-remove-member="' + esc(name) + '">x</button></span>';
     }).join("");
     $("#strainList").innerHTML = state.strains.map(function (strain) {
-      return '<div class="strain-item"><span>' + esc(strain.name) + "</span><strong>" + money.format(strain.price) + '</strong><button type="button" aria-label="Remove ' + esc(strain.name) + '" data-remove-strain="' + esc(strain.name) + '">Ã—</button></div>';
+      return '<div class="strain-item"><span>' + esc(strain.name) + "</span><strong>" + money.format(strain.price) + '</strong><button type="button" aria-label="Remove ' + esc(strain.name) + '" data-remove-strain="' + esc(strain.name) + '">x</button></div>';
     }).join("");
   }
   function correctionRow(type, row) {
     const isGrow = type === "grow";
     const label = isGrow
-      ? esc(row.grower) + " Â· " + esc(row.strain)
+      ? esc(row.grower) + " - " + esc(row.strain)
       : esc(row.seller) + " sold " + quantity(row.boxes, "box", "boxes");
     const detail = isGrow
-      ? quantity(growTrimmings(row), "trimming", "trimmings") + " Â· " + formatDate(row.timestamp)
-      : esc(row.strain) + " Â· " + money.format(row.gross) + " Â· " + formatDate(row.timestamp);
+      ? quantity(growTrimmings(row), "trimming", "trimmings") + " - " + formatDate(row.timestamp)
+      : esc(row.strain) + " - " + money.format(row.gross) + " - " + formatDate(row.timestamp);
     const deleteLabel = isGrow ? "Delete grow" : "Delete sale + payout";
     const payoutButtons = isGrow ? "" :
       (row.growerPaidAt ? '<button class="mini-button" type="button" data-reopen-payout="' + esc(row.id) + '" data-role="grower">Undo grower paid</button>' : "") +
@@ -431,7 +431,7 @@
   function supplyCorrectionRow(row) {
     const amount = num(row.total || num(row.quantity) * num(row.unitCost));
     const action = row.paidAt ? '<button class="mini-button" type="button" data-reopen-payout="' + esc(row.id) + '" data-role="supply">Undo reimbursement paid</button>' : '<span class="due">Owed</span>';
-    return '<div class="correction-row"><div><strong>' + esc(row.item) + "</strong><small>" + esc(row.buyer) + " Â· " + money.format(amount) + " Â· " + formatDate(row.timestamp) + '</small></div><div class="correction-actions"><button class="mini-button" type="button" data-edit-supply="' + esc(row.id) + '">Edit</button>' + action + '<button class="mini-button danger-mini" type="button" data-delete-supply="' + esc(row.id) + '">Delete supply + reimbursement</button></div></div>';
+    return '<div class="correction-row"><div><strong>' + esc(row.item) + "</strong><small>" + esc(row.buyer) + " - " + money.format(amount) + " - " + formatDate(row.timestamp) + '</small></div><div class="correction-actions"><button class="mini-button" type="button" data-edit-supply="' + esc(row.id) + '">Edit</button>' + action + '<button class="mini-button danger-mini" type="button" data-delete-supply="' + esc(row.id) + '">Delete supply + reimbursement</button></div></div>';
   }
   function renderCorrections() {
     const grows = state.grows.slice().sort(function (a, b) { return new Date(b.timestamp) - new Date(a.timestamp); }).slice(0, 8);
@@ -444,7 +444,7 @@
     $("#managerCorrectionHistory").innerHTML = history.length ? '<div class="history-list">' + history.map(function (row) {
       const actionName = String(row.action || "edit").toLowerCase();
       const action = actionName === "delete" ? "deleted" : actionName === "reopen" ? "reopened" : "corrected";
-      return '<div class="history-item"><strong>' + esc(String(row.recordType || "record").toUpperCase()) + " " + action + "</strong><small>" + esc(row.reason) + " Â· " + esc(formatDate(row.timestamp)) + "</small></div>";
+      return '<div class="history-item"><strong>' + esc(String(row.recordType || "record").toUpperCase()) + " " + action + "</strong><small>" + esc(row.reason) + " - " + esc(formatDate(row.timestamp)) + "</small></div>";
     }).join("") + "</div>" : empty("No corrections have been made yet.");
   }
   function setCorrectionGroup(group, active) {
@@ -453,7 +453,7 @@
   }
   function setRecordSelectValue(select, value) {
     const exists = Array.from(select.options).some(function (option) { return option.value === String(value); });
-    if (!exists && value) select.add(new Option(String(value) + " Â· archived", String(value)));
+    if (!exists && value) select.add(new Option(String(value) + " - archived", String(value)));
     select.value = value;
   }
   function openCorrection(type, id) {
@@ -506,7 +506,7 @@
     const select = $("[data-inventory-strains]");
     const current = select.value;
     select.innerHTML = '<option value="">Choose available stock</option>' + rows.map(function (row) {
-      return '<option value="' + esc(row.strain) + '" data-stock="' + row.boxes + '" data-trimmings="' + row.trimmings + '" data-price="' + row.price + '">' + esc(row.strain) + " Â· " + quantity(row.boxes, "box", "boxes") + "</option>";
+      return '<option value="' + esc(row.strain) + '" data-stock="' + row.boxes + '" data-trimmings="' + row.trimmings + '" data-price="' + row.price + '">' + esc(row.strain) + " - " + quantity(row.boxes, "box", "boxes") + "</option>";
     }).join("");
     if (rows.some(function (row) { return row.strain === current; })) select.value = current;
     updateStockHint();
@@ -552,11 +552,11 @@
     $("[data-active-week]").textContent = state.activeWeek ? state.activeWeek.label : "No active week";
     $("[data-manager-week]").textContent = state.activeWeek ? state.activeWeek.label : "No active week";
     const currentSales = state.sales.filter(function (sale) { return state.activeWeek && sale.weekId === state.activeWeek.id; });
-    $("[data-week-summary]").textContent = quantity(currentSales.length, "sale", "sales") + " this week Â· stock, supply costs, and balances roll forward";
+    $("[data-week-summary]").textContent = quantity(currentSales.length, "sale", "sales") + " this week - stock, supply costs, and balances roll forward";
     const select = $("#ledgerWeek");
     const current = select.value;
     select.innerHTML = '<option value="all">All weeks</option>' + state.weeks.slice().reverse().map(function (week) {
-      return '<option value="' + esc(week.id) + '">' + esc(week.label) + (week.status === "active" ? " Â· active" : "") + "</option>";
+      return '<option value="' + esc(week.id) + '">' + esc(week.label) + (week.status === "active" ? " - active" : "") + "</option>";
     }).join("");
     if (state.weeks.some(function (week) { return week.id === current; })) select.value = current;
   }
@@ -583,7 +583,7 @@
     if (state.busy) return false;
     state.busy = true;
     $$("button[type=submit]").forEach(function (button) { button.disabled = true; });
-    setSync("loading", "Saving to shared sheetâ€¦");
+    setSync("loading", "Saving to shared sheet...");
     try {
       const result = await operation();
       applyData(result.data);
@@ -611,7 +611,7 @@
     $("[data-preview-gross]").textContent = money.format(split.gross);
     $("[data-preview-grower]").textContent = money.format(split.grower);
     $("[data-preview-seller]").textContent = money.format(split.seller);
-    $("[data-preview-supplies]").textContent = "âˆ’" + money.format(split.supplyDeduction);
+    $("[data-preview-supplies]").textContent = "-" + money.format(split.supplyDeduction);
     $("[data-preview-gang]").textContent = money.format(split.gang);
   }
   function updateSupplyPreview() {
