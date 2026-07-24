@@ -28,7 +28,7 @@ function doPost(e) {
     assertAccess_(body.accessCode);
     const action = String(body.action || "");
     let result;
-    if (["verifyAdmin", "updateGrow", "updateSale", "deleteGrow", "deleteSale", "settleSale", "reopenPayout", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
+    if (["verifyAdmin", "updateGrow", "updateSale", "deleteGrow", "deleteSale", "settleSale", "settlePayouts", "reopenPayout", "rolloverWeek", "upsertConfig", "removeConfig"].indexOf(action) !== -1) assertAdmin_(body.adminCode);
     if (action === "bootstrap") result = bootstrap_();
     else if (action === "verifyAdmin") result = { authorized: true };
     else if (action === "addGrow") result = addGrow_(body.record || {});
@@ -39,6 +39,7 @@ function doPost(e) {
     else if (action === "deleteGrow") result = deleteGrow_(body.id, body.reason);
     else if (action === "deleteSale") result = deleteSale_(body.id, body.reason);
     else if (action === "settleSale") result = settleSale_(body.id, body.role);
+    else if (action === "settlePayouts") result = settlePayouts_(body.items);
     else if (action === "reopenPayout") result = reopenPayout_(body.id, body.role, body.reason);
     else if (action === "rolloverWeek") result = rolloverWeek_(body.label);
     else if (action === "upsertConfig") result = upsertConfig_(body.kind, body.name, body.price);
@@ -282,6 +283,48 @@ function settleSale_(id, role) {
     const stamp = new Date().toISOString();
     if (role === "grower" || role === "both") sheet.getRange(rowIndex + 1, growerIndex + 1).setValue(stamp);
     if (role === "seller" || role === "both") sheet.getRange(rowIndex + 1, sellerIndex + 1).setValue(stamp);
+  });
+  return bootstrap_();
+}
+
+function settlePayouts_(items) {
+  if (!Array.isArray(items) || !items.length) throw new Error("Select at least one unpaid payout.");
+  if (items.length > 500) throw new Error("Select 500 payouts or fewer at a time.");
+  var normalized = [];
+  var seen = {};
+  items.forEach(function (item) {
+    var id = clean_(item && item.id, 120);
+    var role = clean_(item && item.role, 20);
+    if (!id || ["grower", "seller"].indexOf(role) === -1) throw new Error("Invalid payout selection.");
+    var key = id + "::" + role;
+    if (!seen[key]) {
+      seen[key] = true;
+      normalized.push({ id: id, role: role });
+    }
+  });
+  withLock_(function () {
+    var sheet = sheet_(SHEET_NAMES.sales);
+    var values = sheet.getDataRange().getValues();
+    var headers = values[0].map(String);
+    var idIndex = headers.indexOf("id");
+    var growerIndex = headers.indexOf("growerPaidAt");
+    var sellerIndex = headers.indexOf("sellerPaidAt");
+    var deletedIndex = headers.indexOf("deletedAt");
+    var rows = {};
+    values.slice(1).forEach(function (row, offset) {
+      rows[String(row[idIndex])] = { row: row, rowIndex: offset + 2 };
+    });
+    var updates = [];
+    normalized.forEach(function (item) {
+      var located = rows[item.id];
+      if (!located) throw new Error("One selected sale no longer exists. Refresh and try again.");
+      if (deletedIndex >= 0 && located.row[deletedIndex]) throw new Error("Deleted sales cannot be settled.");
+      var index = item.role === "grower" ? growerIndex : sellerIndex;
+      if (index < 0) throw new Error("The payout columns are missing from the sales sheet.");
+      if (!located.row[index]) updates.push({ rowIndex: located.rowIndex, column: index + 1 });
+    });
+    var stamp = new Date().toISOString();
+    updates.forEach(function (update) { sheet.getRange(update.rowIndex, update.column).setValue(stamp); });
   });
   return bootstrap_();
 }

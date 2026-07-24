@@ -29,7 +29,7 @@ if (!html.includes('name="trimmings"') || !html.includes("data-admin-dialog") ||
   console.error("Trimmings intake or manager authorization controls are missing.");
   process.exit(1);
 }
-if (!html.includes('id="managerPayoutQueue"') || html.includes('id="payoutQueue"') || !js.includes('#managerPayoutQueue') || !js.includes('if (!state.adminCode) return ""') || !backend.includes('"settleSale"') || !backend.includes("assertAdmin_(body.adminCode)")) {
+if (!html.includes('id="managerPayoutQueue"') || html.includes('id="payoutQueue"') || !html.includes('data-select-all-payouts') || !html.includes('data-action="settle-selected"') || !js.includes('#managerPayoutQueue') || !js.includes('if (!state.adminCode) return ""') || !js.includes('selectedPayouts') || !js.includes('mutate("settlePayouts"') || !backend.includes('"settleSale"') || !backend.includes('"settlePayouts"') || !backend.includes('settlePayouts_') || !backend.includes('withLock_') || !backend.includes("assertAdmin_(body.adminCode)")) {
   console.error("Payout settlement is not protected by manager authorization.");
   process.exit(1);
 }
